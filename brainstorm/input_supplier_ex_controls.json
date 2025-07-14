@@ -1,0 +1,19 @@
+{
+  "controls": [
+    {
+      "control_number": "AC-1",
+      "Images": [
+        "https://www.w3schools.com/cybersecurity/img_tcp-header.png",
+        "https://app.netrounds.com/static/3.2/support/_images/nwpf-overview.png"
+      ]
+    },
+    {
+      "control_number": "AC-2",
+      "Images": [
+        "https://www.w3schools.com/cybersecurity/img_tcp-header.png",
+        "https://zd-brightspot.s3.us-east-1.amazonaws.com/wp-content/uploads/2022/04/05123619/10-2.png"
+      ]
+    }
+  ]
+}
+

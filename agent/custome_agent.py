@@ -1,0 +1,45 @@
+import requests
+import json, os, sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pathlib import Path
+from langchain.chat_models.base import BaseChatModel
+from langchain.schema import HumanMessage, AIMessage
+from langchain.schema.messages import BaseMessage
+from langchain.schema.output import ChatResult, ChatGeneration
+
+
+max_new_tokens = 500
+
+class MyCustomMultiImageChatLLM(BaseChatModel):
+    endpoint_url: str
+
+    @property
+    def _llm_type(self) -> str:
+        return "my_custom_multi_image_chat_model"
+
+    def _generate(self, messages: list[BaseMessage], **kwargs) -> ChatResult:
+        messages_payload = json.dumps([m.content for m in messages])
+
+        image_paths = kwargs.get("image_paths")
+        if not image_paths or not isinstance(image_paths, (list, tuple)):
+            raise ValueError("You must provide 'image_paths' keyword argument as a list of image file paths")
+
+        # Prepare files dict with messages and max_new_tokens as before
+        files = [
+    ("messages", (None, messages_payload)),
+    ("max_new_tokens", (None, f"{max_new_tokens}")),
+    ]
+        for image_path in image_paths:
+            path_obj = Path(image_path)
+            files.append(("files", (path_obj.name, open(path_obj, "rb"), "image/png")))
+
+
+        response = requests.post(self.endpoint_url, files=files)
+        response.raise_for_status()
+        data = response.json()
+        #print("API response:", data)  # Debug
+
+        generated_text = data.get("response", "")
+
+        generation = ChatGeneration(message=AIMessage(content=generated_text))
+        return ChatResult(generations=[generation])

@@ -1,0 +1,22 @@
+{
+  "controls": [
+    {
+      "control_number": "AC_1",
+      "control_name": "Access Control Policy",
+      "control_statement": "Organizations must establish, document, and review access control policies.",
+      "control_guidelines": "Ensure that access to systems is limited to authorized users and roles.",
+      "classification": ["Network", "System"],
+      "expert_type": "Cybersecurity",
+      "standard_type": "ISO 27001"
+    },
+    {
+      "control_number": "AC_2",
+      "control_name": "Account Management",
+      "control_statement": "Manage user accounts throughout their lifecycle.",
+      "control_guidelines": "Include procedures for creating, disabling, and reviewing accounts regularly.",
+      "classification": ["Identity", "Authentication"],
+      "expert_type": "Security Engineer",
+      "standard_type": "NIST SP 800-53"
+    }
+  ]
+}
