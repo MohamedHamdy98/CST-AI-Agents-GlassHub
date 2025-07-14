@@ -7,7 +7,7 @@ import logging, uuid, shutil, json, requests
 from utils.helper_functions import compress_image_to_max_size
 from agent.reports import Reports
 from agent.dynamic_controls import generate_compliance_prompt, save_control_prompt, merge_all_controls, parse_classification
-from agent.chat_bot import ChatBotSupplier, ChatBotEnterprise
+from agent.chat_bot import ChatBotMain, ChatBotGeneral
 from utils.schemas import ControlsRequest
 from utils.helper_functions import upload_to_azure_blob, delete_files, download_blob_from_url, download_image_gathering, load_python_module
 from azure.storage.blob import BlobServiceClient
@@ -177,36 +177,9 @@ async def generate_enterprise_controls(
     finally:
         delete_files("./database/saved_controls")
 
-"""  
 
-
-
-"""
-@router.post("/chat_enterprise")
-async def chat_enterprise(
-    user_message: str = Form(...),
-    control_number: str = Form(...),
-    report: str = Form(...)
-):
-    """
-    Endpoint to chat with the bot using a control number and report.
-    """
-    logger.info(f"Chat initiated for control number: {control_number} with message: {user_message}")
-
-    try:
-        chatbot = ChatBotEnterprise(control_number, report)
-        response = chatbot.chat(user_message)
-        logger.info("Chatbot responded successfully.")
-        return {"response": response}
-
-    except Exception as e:
-        logger.exception("Chatbot failed to respond.")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-
-@router.post("/chat_supplier")
-async def chat_supplier(
+@router.post("/chat_main")
+async def chat_main(
     user_message: str = Form(...),
     control_number_json_file: UploadFile = File(..., description="JSON file containing control_number"),
     control_blob_url: str = Form(..., description="URL of the control blob file on Azure Blob Storage"),
@@ -250,7 +223,64 @@ async def chat_supplier(
         control_text = getattr(controls_module, variable_name)
 
         # ✅ Call chatbot
-        chatbot = ChatBotSupplier(control_text, report)
+        chatbot = ChatBotMain(control_text, report)
+        response = chatbot.chat(user_message)
+
+        logger.info("Chatbot responded successfully.")
+        return {"response": response}
+
+    except Exception as e:
+        logger.exception("Chatbot failed to respond.")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.post("/chat_general")
+async def chat_general(
+    user_message: str = Form(...),
+    control_number_json_file: UploadFile = File(..., description="JSON file containing control_number"),
+    control_blob_url: str = Form(..., description="URL of the control blob file on Azure Blob Storage"),
+    report: str = Form(..., description="Report content from agent")
+):
+    if not control_number_json_file.filename.endswith(".json"):
+        raise HTTPException(status_code=400, detail="Uploaded control_number_json_file must be a .json file")
+
+    if not control_blob_url.startswith("https"):
+        raise HTTPException(status_code=400, detail="Control blob URL must be a valid HTTPS URL")
+
+    # ✅ Parse control number from uploaded JSON
+    control_data = json.loads(await control_number_json_file.read())
+    control_number = control_data["controls"][0].get("control_number")  # e.g., "control_AC-1"
+    if not control_number:
+        raise HTTPException(status_code=400, detail="control_number missing in JSON")
+
+    logger.info(f"Chat initiated for control number: {control_number} with message: {user_message}")
+
+    # ✅ Download .py file from Azure
+    temp_dir = "./temp_uploads"
+    os.makedirs(temp_dir, exist_ok=True)
+
+    parsed_url = urlparse(control_blob_url)
+    blob_filename = os.path.basename(parsed_url.path)
+    local_control_path = os.path.join(temp_dir, blob_filename)
+
+    try:
+        download_blob_from_url(control_blob_url, local_control_path, AZURE_CONNECTION_STRING)
+
+        # ✅ Dynamically import the Python module
+        controls_module = load_python_module(local_control_path)
+
+        # ✅ Convert control_number to a valid Python variable name
+        variable_name = control_number.replace("-", "_")  # control_AC-1 → control_AC_1
+
+        # ✅ Extract the variable from the module
+        if not hasattr(controls_module, variable_name):
+            raise HTTPException(status_code=404, detail=f"Variable '{variable_name}' not found in the control file")
+
+        control_text = getattr(controls_module, variable_name)
+
+        # ✅ Call chatbot
+        chatbot = ChatBotGeneral(control_text, report)
         response = chatbot.chat(user_message)
 
         logger.info("Chatbot responded successfully.")

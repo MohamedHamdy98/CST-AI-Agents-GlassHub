@@ -3,14 +3,14 @@ import json, sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 max_new_tokens = 500
-url = "https://qwen-vlm-a100-glasshub.delightfulsky-f308bdb7.westus3.azurecontainerapps.io/qwen/generate_text"
+url = "https://qwen-vlm-a100.delightfulsky-f308bdb7.westus3.azurecontainerapps.io/qwen/generate_pdf"
 
-class ChatBotSupplier:
+class ChatBotMain:
     def __init__(self, control_content, report):#system_message
         self.memory = []
         # Combine system message, report, and control number
         self.system_message = (
-            "You are chat assistant, help user on his questions about the report and the controls.\n"
+            "You are chat assistant (Arabic and English), help user on his questions about the report and the controls.\n"
             f"Control Instructions are: {control_content}\n"
             f"The Report  that was created is: {report}\n"
             "Take these instructions, understand them, see the Report result understand it and start answering the client's questions regarding this report. .\n"
@@ -57,7 +57,7 @@ class ChatBotSupplier:
         return bot_reply
     
 
-class ChatBotEnterprise:
+class ChatBotGeneral:
     def __init__(self, control_content, report ):#system_message
         self.memory = []
         # Combine system message, report, and control number
