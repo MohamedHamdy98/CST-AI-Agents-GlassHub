@@ -4,6 +4,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from langchain.schema import HumanMessage, AIMessage
 from agent.custome_agent import MyCustomMultiImageChatLLM
 from utils.helper_functions import parse_llm_response, parse_llm_response_pydantic
+from rag.knowledge_retriever import retrieve_relevant_knowledge
+
 
 # demo = https://qwen-vlm-a100.delightfulsky-f308bdb7.westus3.azurecontainerapps.io/qwen/generate_pdf
 # main project = https://qwen-vlm-a100-glasshub.delightfulsky-f308bdb7.westus3.azurecontainerapps.io/qwen/generate_text

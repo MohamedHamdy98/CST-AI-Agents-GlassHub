@@ -33,11 +33,17 @@
 # except ValidationError as e:
 #     print("❌ Invalid JSON format")
 #     print(e)
-
 import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.helper_functions import load_python_module
+from rag.knowledge_retriever import retrieve_relevant_knowledge
 
-controls_content = load_python_module(file_path=r"H:\GlassHub\glasshub\temp_uploads\Sadeem_controls.py")
-control_number = "control_AC_1"
-print(f"{controls_content}.{control_number}")
+
+rag_context = retrieve_relevant_knowledge(
+    user_question='اريد تقديم خدمات الرسائل القصيرة',
+    is_licensed='نعم',
+    license_type='نوع الترخيص',
+    service_type='نوع الخدمة',
+    regulations='التنظيمات'
+)
+print("Retrieved RAG context:")
+print(rag_context)

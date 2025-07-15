@@ -9,7 +9,7 @@ from utils.schemas import LLMComplianceResult
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
 from pathlib import Path
 import importlib.util
-
+from collections import defaultdict
 
 def load_python_module(file_path):
     # Extract a safe module name based on the file name and a unique ID
@@ -300,4 +300,28 @@ async def download_image_gathering(client, url, temp_dir):
     except Exception as e:
         raise Warning(f"Failed to download {url}: {e}")
     
+
+def parse_retrieved_text_to_json(text: str) -> dict:
+    results = defaultdict(list)
+    current_file = None
+    current_content = []
+
+    for line in text.strip().splitlines():
+        match = re.match(r"📄 \*\*(?:من الملف:|From file:)\*\* (.+)", line.strip())
+        if match:
+            
+            if current_file and current_content:
+                results[current_file].append("\n".join(current_content).strip())
+
+            current_file = match.group(1).strip()
+            current_content = []
+        else:
+            if current_file:
+                current_content.append(line)
+
+    if current_file and current_content:
+        results[current_file].append("\n".join(current_content).strip())
+
+    return {"documents": results}
+
 

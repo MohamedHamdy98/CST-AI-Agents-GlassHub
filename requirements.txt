@@ -1,4 +1,4 @@
-requests== 2.32.3
+requests==2.32.3
 langchain==0.3.20
 langchain-community==0.3.19
 fastapi==0.115.11
@@ -6,5 +6,12 @@ uvicorn==0.34.0
 python-multipart==0.0.20
 pillow
 azure-storage-blob
-dotenv
+python-dotenv
 pydantic
+langchain-huggingface
+langchainhub
+python-docx
+unstructured
+sentence-transformers
+faiss-cpu
+openpyxl
