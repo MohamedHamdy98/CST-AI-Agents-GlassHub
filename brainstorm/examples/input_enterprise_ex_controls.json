@@ -1,7 +1,7 @@
 {
   "controls": [
     {
-      "control_number": "AC_1",
+      "control_number": "AC-1",
       "control_name": "Access Control Policy",
       "control_statement": "Organizations must establish, document, and review access control policies.",
       "control_guidelines": "Ensure that access to systems is limited to authorized users and roles.",

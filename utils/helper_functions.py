@@ -2,7 +2,7 @@ import json
 import re, os, uuid, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PIL import Image
-import io
+import io, requests, oss2, httpx
 from urllib.parse import urlparse
 from pydantic import ValidationError
 from utils.schemas import LLMComplianceResult
@@ -325,3 +325,161 @@ def parse_retrieved_text_to_json(text: str) -> dict:
     return {"documents": results}
 
 
+
+def flatten_clauses(data_json, source, page="Page not specified"):
+    all_clauses = []
+    clause_counter = 1
+
+    for item in data_json:
+        clauses = item.get("clauses", [])
+        for clause in clauses:
+            all_clauses.append({
+                "title": f"البند {clause_counter}",
+                "description": clause.get("description", "").strip(),
+                "source": source,
+                "page": page
+            })
+            clause_counter += 1
+
+    return all_clauses
+
+
+def extract_json_objects(text):
+    json_objects = []
+    brace_level = 0
+    start_idx = None
+
+    for idx, char in enumerate(text):
+        if char == '{':
+            if brace_level == 0:
+                start_idx = idx
+            brace_level += 1
+        elif char == '}':
+            brace_level -= 1
+            if brace_level == 0 and start_idx is not None:
+                json_str = text[start_idx:idx + 1]
+                json_objects.append(json_str)
+                start_idx = None
+
+    return json_objects
+
+
+
+def upload_to_alibaba_oss_signed(bucket, local_file_path, object_name, expires=3600):
+    try:
+        with open(local_file_path, 'rb') as file:
+            bucket.put_object(object_name, file)
+        signed_url = bucket.sign_url('GET', object_name, expires)
+        print(f"✅ Uploaded with signed URL: {signed_url}")
+        return signed_url
+    except Exception as e:
+        print(f"❌ Upload failed: {e}")
+        return None
+
+
+def download_from_alibaba_oss(url, local_path):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+
+        with open(local_path, 'wb') as f:
+            f.write(response.content)
+
+        print(f"✅ Downloaded from URL: {url} → {local_path}")
+        return True
+
+    except Exception as e:
+        print(f"❌ Download failed: {e}")
+        return False
+
+
+def init_oss_bucket(access_key_id, access_key_secret, endpoint, bucket_name):
+    auth = oss2.Auth(access_key_id, access_key_secret)
+    bucket = oss2.Bucket(auth, endpoint, bucket_name)
+    return bucket
+
+
+def extract_clauses_with_system_message(QWEN3_ENDPOINT: str, prompt: str, max_tokens: int = 512, thinking: bool = False):
+    system_message = """
+    أنت مساعد ذكي مخصص لاستخراج البنود القانونية والتنظيمية من النصوص.
+    📌 المطلوب:
+    قم باستخراج التعليمات الصريحة أو الالتزامات أو القيود من مستندات مكتوبة بالعربية أو الإنجليزية (مثل السياسات أو العقود)، وأرجعها ككائن JSON بالهيكل التالي تحت المفتاح `flattened`:
+
+    {
+    "flattened": [
+        {
+        "title": "البند 1",
+        "description": "نص البند...",
+        "source": "اسم الملف.docx",
+        "page": "Page not specified"
+        },
+        ...
+    ]
+    }
+
+    📎 التعليمات الإلزامية:
+    1. يجب أن تكون **كل نتيجة عبارة عن عنصر منفصل** في القائمة.
+    2. لا تدمج أكثر من بند داخل `description` واحد.
+    3. لا تكرر البنود.
+    4. لا تُرجع أي محتوى خارج الـ JSON (مثل شروحات، مقدمات، أو نصوص خارجية).
+    5. كل بند يجب أن يحتوي على:
+    - `title` باسم مثل: "البند 1"، "البند 2"، ...
+    - `description`: صياغة واضحة للبند المستخرج.
+    - `source`: اسم الملف كما تم تمريره لك.
+    - `page`: دائمًا "Page not specified".
+
+    ✅ مثال واضح:
+    {
+    "flattened": [
+        {
+        "title": "البند 1",
+        "description": "يجب على مقدم الخدمة حماية البيانات الشخصية.",
+        "source": "مثال_raw_response.docx",
+        "page": "Page not specified"
+        },
+        {
+        "title": "البند 2",
+        "description": "يُحظر على مقدم الخدمة مشاركة البيانات دون موافقة المستخدم.",
+        "source": "مثال_raw_response.docx",
+        "page": "Page not specified"
+        }
+    ]
+    }
+
+    🔒 لا تخرج عن هذا التنسيق أبدًا. فقط أرجع الكائن JSON أعلاه بدون أي تعليقات أو تنسيقات إضافية.
+    """
+
+    # Combine system + user message
+    full_prompt = f"{system_message}\n\nUSER:\n{prompt}"
+
+    headers = {
+        "accept": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+
+    data = {
+        "prompt": full_prompt,
+        "max_tokens": str(max_tokens),
+        "thinking": str(thinking).lower()
+    }
+
+    response = httpx.post(QWEN3_ENDPOINT, headers=headers, data=data, timeout=240)
+    if response.status_code != 200:
+        raise Exception(f"❌ LLM Error: {response.status_code} - {response.text}")
+
+    return response.json()
+
+
+def download_from_url(url, local_path):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        with open(local_path, 'wb') as f:
+            f.write(response.content)
+        print(f"✅ Downloaded from URL: {url} → {local_path}")
+        return True
+    except Exception as e:
+        print(f"❌ Download failed: {e}")
+        return False

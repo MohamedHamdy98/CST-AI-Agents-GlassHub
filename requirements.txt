@@ -15,3 +15,5 @@ unstructured
 sentence-transformers
 faiss-cpu
 openpyxl
+fitz
+oss2

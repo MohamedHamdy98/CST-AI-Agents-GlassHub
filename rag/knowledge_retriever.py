@@ -1,6 +1,6 @@
 import os
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 
 def create_path_directory(path: str) -> str:
@@ -43,7 +43,6 @@ def retrieve_relevant_knowledge(
 ):
     db = load_vectorstore()
 
-    # بناء الاستعلام الموسّع من إجابات المستخدم
     enriched_query = f"""
     استعلام المستخدم: {user_question}
     هل الرخصة مرخصة؟ → {is_licensed}
@@ -52,19 +51,20 @@ def retrieve_relevant_knowledge(
     التنظيمات → {regulations}
     """
 
-    # البحث في قاعدة المعرفة (FAISS)
     results = db.similarity_search(enriched_query.strip(), k=k)
 
-    # ربط كل نتيجة باسم المصدر
     formatted_results = []
     for doc in results:
-        source = doc.metadata.get("source", "📄 ملف غير معروف")
+        source = doc.metadata.get("source", "File not specified")
+        page = doc.metadata.get("page", "Page not specified")
         content = doc.page_content.strip()
-        formatted_results.append(f"📄 **من الملف:** {source}\n{content}")
 
-    return "\n\n".join(formatted_results)
-
-
+        formatted_results.append({
+            "source": source,
+            "page": page,
+            "content": content
+        })
+    return formatted_results
 
 
 # For CLI Testing

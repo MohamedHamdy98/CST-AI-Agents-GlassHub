@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from apis.api_router import router  
+from apis.api_main_process_router import router as main_process
+from apis.api_admin_router import router as admin
+from apis.api_chat_router import router as chat
+from apis.api_data_router import router as data
 import logging
 from logging.handlers import RotatingFileHandler
 import os, sys
@@ -30,8 +33,10 @@ app.add_middleware(
 )
 
 # Include router
-app.include_router(router, prefix="/api/v1", tags=["report"])
-
+app.include_router(admin)
+# app.include_router(data)
+# app.include_router(main_process)
+app.include_router(chat)
 
 if __name__ == "__main__":
     import uvicorn

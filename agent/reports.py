@@ -23,7 +23,7 @@ class Reports():
         """
         self.control_number = control_number
         self.list_image_paths = list_image_paths
-        self.endpoint_url = "https://qwen-vlm-a100.delightfulsky-f308bdb7.westus3.azurecontainerapps.io/qwen/generate_pdf"
+        self.endpoint_url = "https://qwen-vlm-a100.delightfulsky-f308bdb7.westus3.azurecontainerapps.io/qwen/generate_text"
         self.controls_content = controls_content
 
     def generate_report(self):
@@ -41,11 +41,11 @@ class Reports():
         llm = MyCustomMultiImageChatLLM(endpoint_url=endpoint_url)
 
         # control_content = getattr(self.controls, 'control'+ self.control_number)
-        pattern = rf'control_{self.control_number.strip()}\s*=\s*\"\"\"(.*?)\"\"\"'
+        pattern = rf'{self.control_number.strip()}\s*=\s*\"\"\"(.*?)\"\"\"'
         match = re.search(pattern, self.controls_content, re.DOTALL)
 
         if not match:
-            raise ValueError(f"Control control_{self.control_number} not found in uploaded content.")
+            raise ValueError(f"Control {self.control_number} not found in uploaded content.")
 
         control_content = match.group(1).strip()
 

@@ -74,11 +74,12 @@ def save_control_prompt(control_number: str, prompt: str, save_dir: str = "./dat
     os.makedirs(save_dir, exist_ok=True)
 
     # Normalize control number to be a valid Python variable name (e.g., CT-01 -> control_01)
-    control_display_number = control_number.split("-")[-1].replace(".", "_")
+    # control_display_number = control_number.split("-")[-1].replace(".", "_")
+    control_display_number = control_number.replace(".", "_").replace("-", "_")
     variable_name = f"control_{control_number}"
 
     # Create the Python content with triple-quoted string
-    formatted_content = f'{variable_name} = """\n{prompt}\n"""'
+    formatted_content = f'{control_display_number} = """\n{prompt}\n"""'
 
     # Save as a Python file
     file_path = os.path.join(save_dir, f"{variable_name}.py")

@@ -33,17 +33,6 @@
 # except ValidationError as e:
 #     print("❌ Invalid JSON format")
 #     print(e)
-import os, sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from rag.knowledge_retriever import retrieve_relevant_knowledge
-
-
-rag_context = retrieve_relevant_knowledge(
-    user_question='اريد تقديم خدمات الرسائل القصيرة',
-    is_licensed='نعم',
-    license_type='نوع الترخيص',
-    service_type='نوع الخدمة',
-    regulations='التنظيمات'
-)
-print("Retrieved RAG context:")
-print(rag_context)
+control_number = 'AC-1.2'
+control_display_number = control_number.replace(".", "_").replace("-", "_")
+print(control_display_number)
