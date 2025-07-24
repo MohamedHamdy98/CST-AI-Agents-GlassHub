@@ -4,7 +4,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 import logging, shutil, json
 from agent.reports import Reports
-from utils.helper_functions import (download_blob_from_url, download_image_gathering)
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
 from typing import Dict
@@ -40,6 +39,7 @@ BUCKET_NAME = os.getenv("OSS_BUCKET")
 QWEN3_ENDPOINT = os.getenv('QWEN3_ENDPOINT')
 QWEN3_ENDPOINT_CHAT = os.getenv('QWEN3_ENDPOINT_CHAT')
 
+'''
 # for supplier compliance controls
 @router.post("/generate_report")
 async def generate_report(
@@ -125,7 +125,7 @@ async def generate_report(
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
         logger.info(f"Temp directory cleaned: {temp_dir}")
-
+'''
 
 
 

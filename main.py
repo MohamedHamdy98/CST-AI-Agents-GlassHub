@@ -34,8 +34,8 @@ app.add_middleware(
 
 # Include router
 app.include_router(admin)
-# app.include_router(data)
-# app.include_router(main_process)
+app.include_router(data)
+app.include_router(main_process)
 app.include_router(chat)
 
 if __name__ == "__main__":

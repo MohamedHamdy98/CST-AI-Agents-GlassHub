@@ -1,12 +1,10 @@
-import sys
-import os
+import os, sys, json
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi import APIRouter, Form, HTTPException
 import logging
-from utils.dynamic_controls import generate_compliance_prompt, save_control_prompt, merge_all_controls
+# from utils.dynamic_controls import generate_compliance_prompt, save_control_prompt, merge_all_controls
 from utils.schemas import ControlsRequest
-from utils.helper_functions import (upload_to_azure_blob, delete_files, extract_clauses_with_system_message, extract_json_objects, flatten_clauses)
-from azure.storage.blob import BlobServiceClient
+from utils.helper_functions import (extract_clauses_with_system_message, extract_json_objects, flatten_clauses)
 from dotenv import load_dotenv
 from rag.knowledge_retriever import retrieve_relevant_knowledge
 
@@ -23,10 +21,6 @@ logger.setLevel(logging.INFO)
 
 router = APIRouter(prefix="/api/v1", tags=["data"])
 
-# Azure Connection
-AZURE_CONNECTION_STRING = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
-CONTAINER_NAME = "cst"
-blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
 
 # Alibaba cloud Connection
 ACCESS_KEY_ID = os.getenv("OSS_ACCESS_KEY_ID")
@@ -40,7 +34,7 @@ QWEN3_ENDPOINT = os.getenv('QWEN3_ENDPOINT')
 QWEN3_ENDPOINT_CHAT = os.getenv('QWEN3_ENDPOINT_CHAT')
 
 
-
+'''
 # for enterprise compliance controls
 @router.post("/generate_enterprise_controls")
 async def generate_enterprise_controls(
@@ -99,7 +93,7 @@ async def generate_enterprise_controls(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         delete_files("./database/saved_controls")
-
+'''
 
 
 # For RAG System
@@ -143,7 +137,7 @@ async def filter_terms(
 
         flattened = flatten_clauses(data_js, source, page)
 
-        terms = extract_clauses_with_system_message(QWEN3_ENDPOINT_CHAT, flattened, 2000, False)
+        terms = extract_clauses_with_system_message(QWEN3_ENDPOINT_CHAT, flattened, 8000, False)
         terms = terms.get('response')
 
         print("Json Terms:", terms)

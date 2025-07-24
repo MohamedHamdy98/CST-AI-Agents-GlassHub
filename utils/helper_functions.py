@@ -1,15 +1,16 @@
-import json
-import re, os, uuid, sys
+import re, os, uuid, sys, fitz, shutil, json
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PIL import Image
 import io, requests, oss2, httpx
-from urllib.parse import urlparse
+from fastapi import UploadFile
+from docx2pdf import convert
 from pydantic import ValidationError
 from utils.schemas import LLMComplianceResult
-from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
 from pathlib import Path
 import importlib.util
 from collections import defaultdict
+from urllib.parse import quote
+
 
 def load_python_module(file_path):
     # Extract a safe module name based on the file name and a unique ID
@@ -198,76 +199,6 @@ def compress_image_to_max_size(input_path, output_path=None, max_size=1_048_576)
     raise ValueError("Could not compress image below max size with acceptable quality.")
 
 
-def upload_to_azure_blob(file_path: str, container_name: str, blob_name: str, connection_string: str) -> str:
-    """
-    Uploads a file to Azure Blob Storage and returns the blob URL.
-
-    :param file_path: Local path to the file to upload.
-    :param container_name: Azure Blob container name.
-    :param blob_name: Desired name for the blob (e.g., merged_controls.py).
-    :param connection_string: Azure Blob Storage connection string.
-    :return: Public blob URL (if container is public).
-    """
-    try:
-        # Connect to Azure Blob Storage
-        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-        container_client = blob_service_client.get_container_client(container_name)
-
-        # Ensure the container exists
-        if not container_client.exists():
-            container_client.create_container()
-
-        # Upload the file
-        with open(file_path, "rb") as data:
-            blob_client = container_client.get_blob_client(blob_name)
-            blob_client.upload_blob(data, overwrite=True)
-
-        blob_url = blob_client.url
-        print(f"✅ Uploaded to Azure Blob Storage: {blob_url}")
-        return blob_url
-
-    except Exception as e:
-        print(f"❌ Azure upload failed: {e}")
-        raise
-
-
-def download_blob_from_url(blob_url: str, destination_path: str, connection_string: str):
-    """
-    Downloads a blob from Azure Blob Storage given its public/private URL.
-
-    :param blob_url: Full blob URL (e.g., https://account.blob.core.windows.net/container/blob_name)
-    :param destination_path: Where to save the file locally.
-    :param connection_string: Azure Storage connection string (used for private blobs).
-    """
-    try:
-        # Parse container and blob name from URL
-        parsed = urlparse(blob_url)
-        path_parts = parsed.path.lstrip("/").split("/", 1)
-
-        if len(path_parts) != 2:
-            raise ValueError("Invalid blob URL format.")
-
-        container_name, blob_name = path_parts
-        print(f"📦 Container: {container_name}")
-        print(f"📄 Blob name: {blob_name}")
-
-        # Connect to blob storage
-        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-        blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
-
-        # Download the blob
-        with open(destination_path, "wb") as file:
-            download_stream = blob_client.download_blob()
-            file.write(download_stream.readall())
-
-        print(f"✅ Blob downloaded to: {destination_path}")
-        return destination_path
-
-    except Exception as e:
-        print(f"❌ Failed to download blob: {e}")
-        raise
-
-
 def delete_files(folder_path: str):
     folder_path = Path(folder_path)
     for file in folder_path.iterdir():
@@ -364,14 +295,18 @@ def extract_json_objects(text):
     return json_objects
 
 
-
-def upload_to_alibaba_oss_signed(bucket, local_file_path, object_name, expires=3600):
+def upload_to_alibaba_oss_static(bucket, local_file_path, object_name, bucket_name="glasshub-files-staging", endpoint="oss-me-central-1.aliyuncs.com"):
     try:
         with open(local_file_path, 'rb') as file:
             bucket.put_object(object_name, file)
-        signed_url = bucket.sign_url('GET', object_name, expires)
-        print(f"✅ Uploaded with signed URL: {signed_url}")
-        return signed_url
+
+        encoded_object_name = quote(object_name)
+
+        # بناء الرابط النهائي الثابت
+        url = f"https://{bucket_name}.{endpoint}/{encoded_object_name}"
+        print(f"✅ Uploaded with static URL: {url}")
+        return url
+
     except Exception as e:
         print(f"❌ Upload failed: {e}")
         return None
@@ -483,3 +418,30 @@ def download_from_url(url, local_path):
     except Exception as e:
         print(f"❌ Download failed: {e}")
         return False
+    
+
+def convert_docx_to_pdf(docx_path, pdf_path):
+    convert(docx_path, pdf_path)
+
+
+def extract_pages_from_pdf(pdf_path):
+    doc = fitz.open(pdf_path)
+    pages = [doc.load_page(i).get_text() for i in range(len(doc))]
+    return pages
+
+
+def estimate_chunk_size(pages: list[str], max_tokens: int = 2000) -> int:
+    page_lengths = [len(page) for page in pages]
+    avg_chars = sum(page_lengths) / len(page_lengths)
+    avg_tokens = avg_chars / 4  
+    return max(1, int(max_tokens / avg_tokens)) 
+
+
+def chunk_pages(pages: list[str], chunk_size: int = 2) -> list[str]:
+    return ["\n".join(pages[i:i+chunk_size]) for i in range(0, len(pages), chunk_size)]
+
+
+def save_temp_file(uploaded_file: UploadFile, save_path: str):
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(uploaded_file.file, buffer)
+    return save_path

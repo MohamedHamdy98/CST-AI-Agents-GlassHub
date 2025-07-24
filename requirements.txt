@@ -16,4 +16,6 @@ sentence-transformers
 faiss-cpu
 openpyxl
 fitz
+pymupdf
 oss2
+docx2pdf
