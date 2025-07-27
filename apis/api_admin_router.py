@@ -1,14 +1,16 @@
-import os, logging, glob, sys, httpx
+import os, logging, glob, sys, httpx, json
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
-from utils.schemas import FileURLs
+from utils.schemas import FileURLs, FileURLsRag
 from docx import Document
 from dotenv import load_dotenv
 from rag.knowledge_ingestion import ingest_company_knowledge
 from utils.helper_functions import (chunk_pages, estimate_chunk_size,save_temp_file, 
                                     convert_docx_to_pdf, extract_pages_from_pdf, init_oss_bucket,
-                                    upload_to_alibaba_oss_static)
+                                    upload_to_alibaba_oss_static, download_files_from_cloud_storage,
+                                    retrieve_full_knowledge_from_docx, load_documents,
+                                    process_all_formatted_results)
 
 
 # Load environment variables from .env file
@@ -88,6 +90,7 @@ def extract_terms(
                 }
                 data = {
                     "prompt": prompt,
+                    "name_word_file": name_word_file,
                     "max_tokens": str(max_tokens),
                     "thinking": str(thinking).lower()
                 }
@@ -142,27 +145,102 @@ def extract_terms(
                 logger.warning(f"⚠️ Could not delete temp file {file}: {cleanup_err}")
 
 
-'''
-do not forget to upload the vectore store to storage and  download it when need.
-'''
+@router.post("/generate_controls")
+def generate_controls(
+    file_urls_json: FileURLs
+):
+    """ 
+        {
+        "files": [
+            {
+                "url": "https://example.com/file1.docx",
+                "name_file": "File1_Controls"
+            },
+            {
+                "url": "https://example.com/file2.docx",
+                "name_file": "File2_Controls"
+            }
+            ]
+        }
+
+    """
+    DOCX_DIRECTORY = "./database/controls"
+    results = []
+
+    try:
+        if not file_urls_json or not file_urls_json.files:
+            logger.exception("Input list is required")
+            raise HTTPException(status_code=400, detail="files are required")
+
+        for entry in file_urls_json.files:
+            url = entry.url
+            name_file = entry.name_file
+            OUTPUT_DOCX = f"./database/controls/{name_file}.docx"
+
+            logger.info(f"Processing: {name_file} from {url}")
+
+            # 1. Download file
+            download_files_from_cloud_storage([url], DOCX_DIRECTORY)
+
+            # 2. Load documents
+            documents = load_documents()
+
+            # 3. Retrieve knowledge
+            retrieve_doc = retrieve_full_knowledge_from_docx(documents)
+
+            # 4. Process results
+            js_result = process_all_formatted_results(retrieve_doc)
+
+            # 5. Save to docx
+            document = Document()
+            document.add_heading("Controls", level=1)
+            document.add_paragraph(json.dumps(js_result, ensure_ascii=False, indent=2))
+            document.save(OUTPUT_DOCX)
+            logger.info(f"✅ Saved DOCX: {OUTPUT_DOCX}")
+
+            # 6. Upload to OSS
+            bucket = init_oss_bucket(ACCESS_KEY_ID, ACCESS_KEY_SECRET, ENDPOINT, BUCKET_NAME)
+            oss_path = f"controls_results/{name_file}.docx"
+            url_uploaded = upload_to_alibaba_oss_static(bucket, OUTPUT_DOCX, oss_path)
+
+            # 7. Append result
+            results.append({
+                "url": url_uploaded,
+                "name_file": name_file,
+                "result": js_result,
+                "uploaded_doc": oss_path
+            })
+
+            # 8. Clean individual output
+            if os.path.exists(OUTPUT_DOCX):
+                os.remove(OUTPUT_DOCX)
+
+        return {
+            "success": True,
+            "files_processed": results
+        }
+
+    except Exception as e:
+        logger.exception("❌ Failed to process or upload.")
+        return {
+            "message": f"Failed to process or upload: {str(e)}",
+            "success": False
+        }
+
+    finally:
+        # 🧹 Cleanup any leftover docx files
+        try:
+            for file in os.listdir(DOCX_DIRECTORY):
+                if file.endswith(".docx"):
+                    os.remove(os.path.join(DOCX_DIRECTORY, file))
+                    logger.info(f"🧹 Cleaned up input: {file}")
+        except Exception as cleanup_err:
+            logger.warning(f"⚠️ Cleanup failed: {cleanup_err}")
+
+
 # For RAG System
 @router.post("/create_rag_system")
-def create_rag_system(file_urls_json: FileURLs):
-    """
-    Endpoint to create a Retrieval-Augmented Generation (RAG) system using provided document URLs.
-
-    This endpoint accepts a list of document URLs, downloads and processes them to ingest knowledge 
-    into the system, and then cleans up temporary files.
-
-    Args:
-        file_urls_json (FileURLs): A Pydantic model containing a list of document URLs to process.
-
-    Returns:
-        dict: A response indicating whether the operation succeeded, along with a descriptive message.
-
-    Raises:
-        HTTPException: If the input is invalid or an error occurs during file processing.
-    """
+def create_rag_system(file_urls_json: FileURLsRag):
 
     DOCX_DIRECTORY = "./database/glasshub_files"
 

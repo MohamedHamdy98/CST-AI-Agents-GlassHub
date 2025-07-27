@@ -1,12 +1,16 @@
 import os, sys, json
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from fastapi import APIRouter, Form, HTTPException
+from fastapi import APIRouter, Form, HTTPException, UploadFile, File
 import logging
+from fastapi.responses import JSONResponse
 # from utils.dynamic_controls import generate_compliance_prompt, save_control_prompt, merge_all_controls
-from utils.schemas import ControlsRequest
-from utils.helper_functions import (extract_clauses_with_system_message, extract_json_objects, flatten_clauses)
+from utils.schemas import ControlsRequest, FileURLsRag
+from utils.helper_functions import (extract_clauses_with_system_message, extract_json_objects, flatten_clauses, init_oss_bucket)
 from dotenv import load_dotenv
+from utils.create_instructions import process_parsed_response
 from rag.knowledge_retriever import retrieve_relevant_knowledge
+from rag.knowledge_ingestion import ingest_company_knowledge, download_files_from_cloud_storage
+
 
 # Load environment variables from .env file
 load_dotenv()
@@ -27,73 +31,52 @@ ACCESS_KEY_ID = os.getenv("OSS_ACCESS_KEY_ID")
 ACCESS_KEY_SECRET = os.getenv("OSS_ACCESS_KEY_SECRET")
 ENDPOINT = os.getenv("OSS_ENDPOINT")
 BUCKET_NAME = os.getenv("OSS_BUCKET")
-
+BUCKET = init_oss_bucket(ACCESS_KEY_ID, ACCESS_KEY_SECRET, ENDPOINT, BUCKET_NAME)
 
 # Qwen3 LLM Endpoint
 QWEN3_ENDPOINT = os.getenv('QWEN3_ENDPOINT')
 QWEN3_ENDPOINT_CHAT = os.getenv('QWEN3_ENDPOINT_CHAT')
 
 
-'''
-# for enterprise compliance controls
-@router.post("/generate_enterprise_controls")
-async def generate_enterprise_controls(
-    enterprise_name: str,
-    file: UploadFile = File(..., description="JSON file containing information about enterprise controls [control_number, control_name, control_statement, control_guidelines, classification, expert_type, standard_type]")):
+@router.post("/using_rag_system")
+def using_rag_system(file_urls_json: FileURLsRag):
+    """ 
+    You can use this all time:
+    {
+        "urls":
+        [
+            "https://glasshub-files-staging.oss-me-central-1.aliyuncs.com/cst_rag/index.faiss",
+            "https://glasshub-files-staging.oss-me-central-1.aliyuncs.com/cst_rag/index.pkl"
+        ]
+    }
     """
-    Accept a JSON file containing a list of controls and process each one.
-    """
+    Pathes = "./database/vectorstore_glasshub/"
+
     try:
-        if not file.filename.endswith(".json"):
-            raise HTTPException(status_code=400, detail="Uploaded file must be a .json file")
-        if not enterprise_name:
-            raise HTTPException(status_code=400, detail="Enterprise name is required")
+        # ✅ Validate input
+        if not file_urls_json:
+            logger.exception("file_urls is required")
+            raise HTTPException(status_code=400, detail="file_urls is required")
 
-        contents = await file.read()
-        json_data = json.loads(contents)
+        file_urls = file_urls_json.urls
+        logger.info(f"The URLs are {file_urls}")
 
-        data = ControlsRequest(**json_data)
+        # 🧠 Ingest knowledge from files
+        download_files_from_cloud_storage(json_data=file_urls, download_dir=Pathes)
+        logger.info("📥 Files are downloaded and processed successfully.")
 
-        results = {}
-
-        for control in data.controls:
-            logger.info(f"Processing control: {control.control_number}")
-
-            # 1. Generate prompt
-            prompt = generate_compliance_prompt(
-                control.control_number,
-                control.control_name,
-                control.control_statement,
-                control.control_guidelines,
-                control.classification,
-                control.expert_type,
-                control.standard_type
-            )
-
-            # 2. Save prompt
-            file_path = save_control_prompt(control.control_number, prompt)
-            logger.info(f"Prompt saved for {control.control_number} at {file_path}")
-
-            results[control.control_number] = {"prompt": prompt}
-
-        # 3. Merge all controls
-        merge_file_path = merge_all_controls()
-        logger.info("All control prompts merged successfully.")
-
-        # 4. Upload merged file to Azure Blob Storage
-        blob_name = f"{enterprise_name}_controls.py"
-        url = upload_to_azure_blob(merge_file_path, CONTAINER_NAME, blob_name, AZURE_CONNECTION_STRING)
-        logger.info(f"Merged controls uploaded to Azure Blob Storage: {url}")
-        results[f"{enterprise_name}_controls_url"] = url
-
-        return results
+        return {
+            "message": "RAG system created and files processed.",
+            "success": True
+        }
 
     except Exception as e:
-        logger.exception("Failed to process JSON file.")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        delete_files("./database/saved_controls")
-'''
+        logger.exception("❌ Failed to download or process files.")
+        return {
+            "message": f"Failed to download or process files: {str(e)}.",
+            "success": False
+        }
+
 
 
 # For RAG System
@@ -121,39 +104,46 @@ async def filter_terms(
             regulations=regulations,
             k=k
         )
+        return JSONResponse(content=results)
+        # # convert the result to json
+        # content = results[0]['content']
+        # source = results[0]['source']
+        # page = results[0].get('page', "Page not specified")
+        # json_blocks = extract_json_objects(content)
 
-        # convert the result to json
-        content = results[0]['content']
-        source = results[0]['source']
-        page = results[0].get('page', "Page not specified")
-        json_blocks = extract_json_objects(content)
+        # data_js = []
+        # for block in json_blocks:
+        #     try:
+        #         data_js.append(json.loads(block))
+        #     except Exception as e:
+        #         print("Error loading block:", e)
 
-        data_js = []
-        for block in json_blocks:
-            try:
-                data_js.append(json.loads(block))
-            except Exception as e:
-                print("Error loading block:", e)
+        # flattened = flatten_clauses(data_js, source, page)
 
-        flattened = flatten_clauses(data_js, source, page)
+        # terms = extract_clauses_with_system_message(QWEN3_ENDPOINT_CHAT, flattened, 6000, False)
+        # terms = terms.get('response')
 
-        terms = extract_clauses_with_system_message(QWEN3_ENDPOINT_CHAT, flattened, 8000, False)
-        terms = terms.get('response')
+        # print("Json Terms:", terms)
+        # print("Type of Terms:", type(terms))
 
-        print("Json Terms:", terms)
-        print("Type of Terms:", type(terms))
+        # terms_dict = json.loads(terms)
+        # flattened_terms = terms_dict["flattened"]
+        # print("Type of flattened_terms:", type(flattened_terms))
+        # parsed_response = [item for item in flattened_terms if len(item.get("description", "")) >= 50]
 
-        terms_dict = json.loads(terms)
-        flattened_terms = terms_dict["flattened"]
-        print("Type of flattened_terms:", type(flattened_terms))
-        parsed_response = [item for item in flattened_terms if len(item.get("description", "")) >= 50]
-
-        # filtered_terms = filter_terms_js(terms)
-        
-        return {
-            "parsed_response":parsed_response
-            }
+        # # json_parsed_response = dict(parsed_response)
+        # # filtered_terms = filter_terms_js(terms)
+        # json_parsed_response = process_parsed_response(parsed_response)
+        # logger.info(json_parsed_response)
+        # return {
+        #     "parsed_response": json_parsed_response
+        #     }
 
     except Exception as e:
         logger.exception("Semantic search failed.")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+

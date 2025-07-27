@@ -3,12 +3,19 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import UnstructuredFileLoader  
-from utils.helper_functions import download_from_alibaba_oss, download_from_url
+from utils.helper_functions import download_from_alibaba_oss, download_from_url, upload_files_to_alibaba_oss_static, init_oss_bucket
 from dotenv import load_dotenv
 from typing import List
 import urllib.parse
 # Load environment variables from .env file
 load_dotenv()
+
+# Alibaba cloud Connection
+ACCESS_KEY_ID = os.getenv("OSS_ACCESS_KEY_ID")
+ACCESS_KEY_SECRET = os.getenv("OSS_ACCESS_KEY_SECRET")
+ENDPOINT = os.getenv("OSS_ENDPOINT")
+BUCKET_NAME = os.getenv("OSS_BUCKET")
+BUCKET = init_oss_bucket(ACCESS_KEY_ID, ACCESS_KEY_SECRET, ENDPOINT, BUCKET_NAME)
 
 def create_path_directory(path: str) -> str:
     directory = os.path.join(os.getcwd(), path)
@@ -73,6 +80,10 @@ def save_vectorstore(db):
     if not os.path.exists(VECTORSTORE_DIRECTORY):
         os.makedirs(VECTORSTORE_DIRECTORY)
     db.save_local(VECTORSTORE_DIRECTORY)
+    faiss = "./database/vectorstore_glasshub/index.faiss"
+    pkl = "./database/vectorstore_glasshub/index.pkl"
+    upload_files_to_alibaba_oss_static(BUCKET, faiss, "cst_rag/index.faiss")
+    upload_files_to_alibaba_oss_static(BUCKET, pkl, "cst_rag/index.pkl")
 
 # Main function to ingest knowledge
 def ingest_company_knowledge(url):
@@ -99,5 +110,5 @@ def ingest_company_knowledge(url):
     
 
 # Run when script is executed
-if __name__ == "__main__":
-    ingest_company_knowledge()
+# if __name__ == "__main__":
+#     ingest_company_knowledge()

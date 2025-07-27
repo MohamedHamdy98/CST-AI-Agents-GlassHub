@@ -30,8 +30,15 @@ class ControlsRequest(BaseModel):
     controls: List[ControlData]
 
 # RAG
-class FileURLs(BaseModel):
+class FileURLsRag(BaseModel):
     urls: List[str]
+
+class FileControlInput(BaseModel):
+    url: str
+    name_file: str
+
+class FileURLs(BaseModel):
+    files: List[FileControlInput]
 
 # General Chat
 class RequirementsControl(BaseModel):

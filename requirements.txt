@@ -19,3 +19,4 @@ fitz
 pymupdf
 oss2
 docx2pdf
+langchain-unstructured

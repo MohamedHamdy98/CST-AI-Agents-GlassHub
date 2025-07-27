@@ -4,12 +4,29 @@ from PIL import Image
 import io, requests, oss2, httpx
 from fastapi import UploadFile
 from docx2pdf import convert
+from langchain_community.document_loaders import UnstructuredFileLoader  
 from pydantic import ValidationError
 from utils.schemas import LLMComplianceResult
+from utils.create_instructions import process_parsed_response
 from pathlib import Path
 import importlib.util
+from typing import List
+import urllib.parse
 from collections import defaultdict
 from urllib.parse import quote
+from dotenv import load_dotenv
+
+load_dotenv()
+
+QWEN3_ENDPOINT_CHAT = os.getenv('QWEN3_ENDPOINT_CHAT')
+
+
+def create_path_directory(path: str) -> str:
+    directory = os.path.join(os.getcwd(), path)
+    os.makedirs(directory, exist_ok=True)
+    return directory
+
+DOCX_DIRECTORY = create_path_directory("./database/glasshub_files")
 
 
 def load_python_module(file_path):
@@ -267,7 +284,7 @@ def flatten_clauses(data_json, source, page="Page not specified"):
             all_clauses.append({
                 "title": f"البند {clause_counter}",
                 "description": clause.get("description", "").strip(),
-                "source": source,
+                "source": source, # clause.get("source", "").strip(),
                 "page": page
             })
             clause_counter += 1
@@ -303,6 +320,24 @@ def upload_to_alibaba_oss_static(bucket, local_file_path, object_name, bucket_na
         encoded_object_name = quote(object_name)
 
         # بناء الرابط النهائي الثابت
+        url = f"https://{bucket_name}.{endpoint}/{encoded_object_name}"
+        print(f"✅ Uploaded with static URL: {url}")
+        return url
+
+    except Exception as e:
+        print(f"❌ Upload failed: {e}")
+        return None
+
+
+def upload_files_to_alibaba_oss_static(bucket, local_file_path, object_name, bucket_name="glasshub-files-staging", endpoint="oss-me-central-1.aliyuncs.com"):
+    try:
+        # Upload the file from local path to OSS object
+        bucket.put_object_from_file(object_name, local_file_path)
+
+        # Encode object name for URL safety
+        encoded_object_name = quote(object_name)
+
+        # Build the final static URL
         url = f"https://{bucket_name}.{endpoint}/{encoded_object_name}"
         print(f"✅ Uploaded with static URL: {url}")
         return url
@@ -445,3 +480,83 @@ def save_temp_file(uploaded_file: UploadFile, save_path: str):
     with open(save_path, "wb") as buffer:
         shutil.copyfileobj(uploaded_file.file, buffer)
     return save_path
+
+
+def download_files_from_cloud_storage(json_data: List[str], download_dir="./database/glasshub_files"):
+    os.makedirs(download_dir, exist_ok=True)
+
+    for url in json_data:
+        filename = urllib.parse.unquote(os.path.basename(url))
+        local_path = os.path.join(download_dir, filename)
+        download_from_url(url, local_path)
+
+def load_documents():
+    documents = []
+    for filename in os.listdir(DOCX_DIRECTORY):
+        if filename.endswith(".docx"):
+            file_path = os.path.join(DOCX_DIRECTORY, filename)
+            loader = UnstructuredFileLoader(file_path)
+            pages = loader.load()
+
+            for i, doc in enumerate(pages):
+                doc.metadata["source"] = filename  # Set real file name as source
+                doc.metadata["page_number"] = i + 1
+                documents.append(doc)
+    return documents
+
+
+def retrieve_full_knowledge_from_docx(documents):
+    formatted_results = []
+    for doc in documents:
+        source = doc.metadata.get("source", "Unknown source")
+        page = doc.metadata.get("page", "Page not specified")
+        content = doc.page_content.strip()
+
+        formatted_results.append({
+            "source": source,  
+            "page": page,
+            "content": content
+        })
+
+    return formatted_results
+
+def process_all_formatted_results(formatted_results):
+    all_parsed_responses = []
+
+    for item in formatted_results:
+        content = item['content']
+        source = item['source']
+        page = item.get('page', "Page not specified")
+
+        json_blocks = extract_json_objects(content)
+
+        data_js = []
+        for block in json_blocks:
+            try:
+                data_js.append(json.loads(block))
+            except Exception as e:
+                print(f"Error loading block from {source}, page {page}: {e}")
+
+        if not data_js:
+            print(f"No valid JSON blocks found in {source}, page {page}")
+            continue
+
+        flattened = flatten_clauses(data_js, source, page)
+        terms = extract_clauses_with_system_message(QWEN3_ENDPOINT_CHAT, flattened, 6000, False)
+
+        if isinstance(terms, dict):
+            terms = terms.get('response', '')
+
+        try:
+            terms_dict = json.loads(terms)
+            flattened_terms = terms_dict.get("flattened", [])
+            parsed_response = [
+                item for item in flattened_terms
+                if len(item.get("description", "")) >= 50
+            ]
+            json_parsed_response = process_parsed_response(parsed_response)
+            all_parsed_responses.append(json_parsed_response)
+        except Exception as e:
+            print(f"Error processing terms from {source}, page {page}: {e}")
+    
+    return all_parsed_responses
