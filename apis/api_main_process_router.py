@@ -3,11 +3,11 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from utils.helper_functions import download_image_gathering
-import logging, shutil, json
+import logging, shutil, json, uuid
 from agent.reports import Reports
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
-from typing import Dict
+from typing import Dict, List
 from urllib.parse import urlparse
 import httpx, asyncio
 
@@ -24,10 +24,6 @@ logger.setLevel(logging.INFO)
 
 router = APIRouter(prefix="/api/v1", tags=["main_process"])
 
-# Azure Connection
-AZURE_CONNECTION_STRING = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
-CONTAINER_NAME = "cst"
-blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
 
 # Alibaba cloud Connection
 ACCESS_KEY_ID = os.getenv("OSS_ACCESS_KEY_ID")
@@ -35,99 +31,59 @@ ACCESS_KEY_SECRET = os.getenv("OSS_ACCESS_KEY_SECRET")
 ENDPOINT = os.getenv("OSS_ENDPOINT")
 BUCKET_NAME = os.getenv("OSS_BUCKET")
 
-
 # Qwen3 LLM Endpoint
-QWEN3_ENDPOINT = os.getenv('QWEN3_ENDPOINT')
-QWEN3_ENDPOINT_CHAT = os.getenv('QWEN3_ENDPOINT_CHAT')
+QWEN2_VL_ENDPOINT = os.getenv('QWEN2_VL_ENDPOINT')
 
 
-# for supplier compliance controls
-@router.post("/generate_report")
+
+@router.post("/generate_report", description="Generate report based on form inputs and uploaded images.")
 async def generate_report(
-    control_blob_url: str = Form(..., description="URL to the .py file on Azure Blob Storage"),  
-    json_file: UploadFile = File(..., description="JSON file containing control_number and image URLs from the supplier"),
+    title: str = Form(..., description="Control title"),
+    description_control: str = Form(..., description="Description of the control"),
+    audit_instructions: str = Form(..., description="Audit instructions"),
+    clause_audit_instructions: str = Form(..., description="Clause-level audit instructions"),
+    images: List[UploadFile] = File(..., description="List of images")
 ):
-    """
-    Accepts:
-    - control_blob_url (str): URL to a .py file on Azure Blob Storage
-    - json_file (.json): Contains control_number and image URLs
-    """
-    temp_dir = os.path.join("./temp_uploads")
-    os.makedirs(temp_dir, exist_ok=True)
-
+    tmp_folder = f"/tmp/{uuid.uuid4()}"
     try:
-        logger.info("Starting report generation from Azure Blob control file...")
+        logger.info("Starting report generation...")
 
-        # ✅ Download .py from Azure
-        if not control_blob_url.startswith("https"):
-            raise HTTPException(status_code=400, detail="Control blob URL must be a valid HTTPS URL")
-        
-        parsed_url = urlparse(control_blob_url)
-        blob_filename = os.path.basename(parsed_url.path)
-        local_control_path = os.path.join(temp_dir, blob_filename)
-        download_blob_from_url(control_blob_url, local_control_path, AZURE_CONNECTION_STRING)
+        os.makedirs(tmp_folder, exist_ok=True)
 
-        with open(local_control_path, "r", encoding="utf-8") as f:
-            controls_content = f.read()
+        image_paths = []
+        for image in images:
+            image_path = os.path.join(tmp_folder, image.filename)
+            with open(image_path, "wb") as buffer:
+                shutil.copyfileobj(image.file, buffer)
+            image_paths.append(image_path)
 
-        # ✅ Load JSON control data
-        if not json_file.filename.endswith(".json"):
-            raise HTTPException(status_code=400, detail="Uploaded json_file must be a .json file")
+        logger.info(f"Saved {len(image_paths)} images for processing.")
 
-        control_data = json.loads(await json_file.read())
+        control_data = {
+            "title": title,
+            "description_control": description_control,
+            "audit_instructions": audit_instructions,
+            "clause_audit_instructions": clause_audit_instructions,
+        }
 
-        if "controls" not in control_data:
-            raise HTTPException(status_code=400, detail="'controls' key missing in JSON")
+        reports_generator = Reports(
+            control_number=title,
+            list_image_paths=image_paths,
+            controls_content=control_data,
+            api=QWEN2_VL_ENDPOINT
+        )
+        result = reports_generator.run_full_pipeline()
 
-        all_results: Dict[str, dict] = {}
-
-        for control in control_data["controls"]:
-            control_number = control.get("control_number")
-            image_urls = control.get("Images", [])
-
-            if not control_number or not image_urls:
-                logger.warning(f"Skipping control with missing data: {control}")
-                all_results[control_number or "unknown"] = {"error": "Missing control_number or Images"}
-                continue
-
-            logger.info(f"Processing control: {control_number} with {len(image_urls)} images")
-
-            image_paths = []
-            async with httpx.AsyncClient(timeout=10) as client:
-                tasks = [download_image_gathering(client, url, temp_dir) for url in image_urls]
-                results = await asyncio.gather(*tasks)
-                image_paths = [res for res in results if res]
-
-            if not image_paths:
-                logger.warning(f"No valid images for control {control_number}")
-                all_results[control_number] = {"error": "No valid images downloaded"}
-                continue
-
-            # ✅ Run report logic
-            try:
-                report_generator = Reports(
-                    control_number=control_number,
-                    list_image_paths=image_paths,
-                    controls_content=controls_content
-                )
-                result = report_generator.final_output_handling_parsing()
-                all_results[f"control_{control_number}"] = result
-                logger.info(f"Successfully generated report for {control_number}")
-            except Exception as e:
-                logger.exception(f"Failed to generate report for {control_number}")
-                all_results[f"control_{control_number}"] = {"error": str(e)}
-
-        return all_results
+        logger.info("Report generation completed.")
+        return {"result": result}
 
     except Exception as e:
-        logger.exception("Critical error in processing report generation.")
-        raise HTTPException(status_code=500, detail=str(e))
-
+        logger.error(f"Error in generate_report: {e}")
+        return {"error": str(e)}
+    
     finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        logger.info(f"Temp directory cleaned: {temp_dir}")
-
-
+        if os.path.exists(tmp_folder):
+            shutil.rmtree(tmp_folder)
 
 
 
