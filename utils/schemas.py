@@ -29,6 +29,16 @@ class ControlData(BaseModel):
 class ControlsRequest(BaseModel):
     controls: List[ControlData]
 
+
+class FilterTermsRequest(BaseModel):
+    user_question: str
+    is_licensed: str
+    license_type: str
+    regulations: str
+    service_type: str
+    k: int = 4
+
+
 # RAG
 class FileURLsRag(BaseModel):
     urls: List[str]
@@ -55,3 +65,4 @@ class GeneralChat(BaseModel):
     description: str
     clause_instruction: ClauseInstructionChat
     clause_audit_instruction: str
+

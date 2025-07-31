@@ -24,7 +24,6 @@ def generate_text(prompt, max_tokens=5000, thinking=False):
         print(f"Error making request to LLM: {e}")
         return None
 
-
 def generate_clause_instruction(clause: str) -> str:
     prompt_english = """
 You are a legal compliance expert. Your task is to transform a given legal or regulatory clause into a clear set of measurable instructions that can be used by a language model to audit documents for compliance.
@@ -129,6 +128,11 @@ You must analyze the image and confirm whether it fulfills the clause requiremen
    Follow the list of audit steps included in the clause. These steps define exactly what to look for to determine compliance.
 
 ---
+### Language Policy:
+- Respond in the **same language** as the clause.
+  - If the clause is in **Arabic**, your entire response (including field labels and steps) must be in **Arabic**.
+  - If the clause is in **English**, respond entirely in **English**.
+---
 
 ### ✅ Final Compliance Decision:
 
@@ -141,16 +145,14 @@ Please provide your conclusion using one of the following decisions:
 If NON-COMPLIANT or INDECISIVE, explain briefly which parts are missing or unsupported and what evidence would be needed to confirm compliance.
 """.strip()
 
-
-def process_parsed_response(data: list) -> dict:
+def process_parsed_response(data: dict) -> dict:
     """
     Processes each clause description in the parsed_response list
     to generate and attach clause instructions and audit instructions.
     """
     processed_items = []
 
-    # for item in data.get("parsed_response", []):
-    for item in data:
+    for item in data.get("parsed_response", []):
         description = item.get("description", "").strip()
 
         if not description:
@@ -187,7 +189,7 @@ if __name__ == "__main__":
     #print("\n\nGenerated Clause Instruction:\n")
     #print(build_clause_audit_instruction(result))
     # Example JSON data to process
-    dictt = {
+    ditc = {
   "parsed_response": [
     {
       "title": "البند 2",
@@ -210,5 +212,5 @@ if __name__ == "__main__":
   ]
 }
 
-    processed_data = process_parsed_response(dictt)
+    processed_data = process_parsed_response(ditc)
     print(json.dumps(processed_data, indent=2, ensure_ascii=False))

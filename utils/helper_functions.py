@@ -1,7 +1,7 @@
 import re, os, uuid, sys, fitz, shutil, json
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PIL import Image
-import io, requests, oss2, httpx
+import io, requests, oss2, httpx, logging
 from fastapi import UploadFile
 from docx2pdf import convert
 from langchain_community.document_loaders import UnstructuredFileLoader  
@@ -15,6 +15,8 @@ import urllib.parse
 from collections import defaultdict
 from urllib.parse import quote
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -312,6 +314,23 @@ def extract_json_objects(text):
     return json_objects
 
 
+def extract_json_from_text(text: str):
+    """
+    Extracts JSON array from text starting at the first '['.
+    Returns None if no valid JSON is found.
+    """
+    start_index = text.find("[")
+    if start_index == -1:
+        return None
+
+    json_str = text[start_index:]
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError as e:
+        logger.warning(f"JSON decoding failed: {e}")
+        return None
+
+
 def upload_to_alibaba_oss_static(bucket, local_file_path, object_name, bucket_name="glasshub-files-staging", endpoint="oss-me-central-1.aliyuncs.com"):
     try:
         with open(local_file_path, 'rb') as file:
@@ -490,11 +509,12 @@ def download_files_from_cloud_storage(json_data: List[str], download_dir="./data
         local_path = os.path.join(download_dir, filename)
         download_from_url(url, local_path)
 
-def load_documents():
+
+def load_documents(docx_path: str = DOCX_DIRECTORY):
     documents = []
-    for filename in os.listdir(DOCX_DIRECTORY):
+    for filename in os.listdir(docx_path):
         if filename.endswith(".docx"):
-            file_path = os.path.join(DOCX_DIRECTORY, filename)
+            file_path = os.path.join(docx_path, filename)
             loader = UnstructuredFileLoader(file_path)
             pages = loader.load()
 
@@ -520,6 +540,7 @@ def retrieve_full_knowledge_from_docx(documents):
 
     return formatted_results
 
+
 def process_all_formatted_results(formatted_results):
     all_parsed_responses = []
 
@@ -542,7 +563,8 @@ def process_all_formatted_results(formatted_results):
             continue
 
         flattened = flatten_clauses(data_js, source, page)
-        terms = extract_clauses_with_system_message(QWEN3_ENDPOINT_CHAT, flattened, 6000, False)
+        print("FLATTENED:", flattened)
+        terms = extract_clauses_with_system_message(QWEN3_ENDPOINT_CHAT, flattened, 10000, False)
 
         if isinstance(terms, dict):
             terms = terms.get('response', '')

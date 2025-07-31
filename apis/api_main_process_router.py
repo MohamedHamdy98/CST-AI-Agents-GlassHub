@@ -15,12 +15,16 @@ import httpx, asyncio
 load_dotenv()
 
 # Logger setup
-logger = logging.getLogger("report_router")
-handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-handler.stream.reconfigure(encoding='utf-8')  
-logger.addHandler(handler)
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# ✅ prevent adding multiple handlers
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    handler.setFormatter(formatter)
+    handler.stream.reconfigure(encoding='utf-8') 
+    logger.addHandler(handler)
 
 router = APIRouter(prefix="/api/v1", tags=["main_process"])
 
@@ -38,6 +42,7 @@ QWEN2_VL_ENDPOINT = os.getenv('QWEN2_VL_ENDPOINT')
 
 @router.post("/generate_report", description="Generate report based on form inputs and uploaded images.")
 async def generate_report(
+    language: str = Form('Arabic', description="Select Arabic or English language for results."),
     title: str = Form(..., description="Control title"),
     description_control: str = Form(..., description="Description of the control"),
     audit_instructions: str = Form(..., description="Audit instructions"),
@@ -67,6 +72,7 @@ async def generate_report(
         }
 
         reports_generator = Reports(
+            language=language,
             control_number=title,
             list_image_paths=image_paths,
             controls_content=control_data,

@@ -17,12 +17,16 @@ from utils.helper_functions import (chunk_pages, estimate_chunk_size,save_temp_f
 load_dotenv()
 
 # Logger setup
-logger = logging.getLogger("report_router")
-handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-handler.stream.reconfigure(encoding='utf-8')  
-logger.addHandler(handler)
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# ✅ prevent adding multiple handlers
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    handler.setFormatter(formatter)
+    handler.stream.reconfigure(encoding='utf-8') 
+    logger.addHandler(handler)
 
 router = APIRouter(prefix="/api/v1", tags=["admin"])
 
@@ -183,7 +187,7 @@ def generate_controls(
             download_files_from_cloud_storage([url], DOCX_DIRECTORY)
 
             # 2. Load documents
-            documents = load_documents()
+            documents = load_documents(docx_path=DOCX_DIRECTORY)
 
             # 3. Retrieve knowledge
             retrieve_doc = retrieve_full_knowledge_from_docx(documents)
@@ -233,7 +237,7 @@ def generate_controls(
             for file in os.listdir(DOCX_DIRECTORY):
                 if file.endswith(".docx"):
                     os.remove(os.path.join(DOCX_DIRECTORY, file))
-                    logger.info(f"🧹 Cleaned up input: {file}")
+                    logger.info(f"Cleaned up input: {file}")
         except Exception as cleanup_err:
             logger.warning(f"⚠️ Cleanup failed: {cleanup_err}")
 

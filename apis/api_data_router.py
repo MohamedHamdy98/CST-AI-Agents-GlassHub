@@ -4,8 +4,8 @@ from fastapi import APIRouter, Form, HTTPException, UploadFile, File
 import logging
 from fastapi.responses import JSONResponse
 # from utils.dynamic_controls import generate_compliance_prompt, save_control_prompt, merge_all_controls
-from utils.schemas import ControlsRequest, FileURLsRag
-from utils.helper_functions import (extract_clauses_with_system_message, extract_json_objects, flatten_clauses, init_oss_bucket)
+from utils.schemas import FilterTermsRequest, FileURLsRag
+from utils.helper_functions import (extract_json_from_text, extract_json_objects, flatten_clauses, init_oss_bucket)
 from dotenv import load_dotenv
 from utils.create_instructions import process_parsed_response
 from rag.knowledge_retriever import retrieve_relevant_knowledge
@@ -16,12 +16,16 @@ from rag.knowledge_ingestion import ingest_company_knowledge, download_files_fro
 load_dotenv()
 
 # Logger setup
-logger = logging.getLogger("report_router")
-handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-handler.stream.reconfigure(encoding='utf-8')  
-logger.addHandler(handler)
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# ✅ prevent adding multiple handlers
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    handler.setFormatter(formatter)
+    handler.stream.reconfigure(encoding='utf-8') 
+    logger.addHandler(handler)
 
 router = APIRouter(prefix="/api/v1", tags=["data"])
 
@@ -78,70 +82,45 @@ def using_rag_system(file_urls_json: FileURLsRag):
         }
 
 
-
 # For RAG System
 @router.post("/filter_terms", description="Search for relevant documents based on user input and company details")
-async def filter_terms(
-    user_question: str = Form(..., description="User's question"),
-    is_licensed: str = Form(..., description="Is the company licensed? (yes/no)"),
-    license_type: str = Form(..., description="What is the license type?"),
-    regulations: str = Form(..., description="What are the regulations?"),
-    service_type: str = Form(..., description="What is the service type?"),
-    k: int = Form(4, description="Number of top documents to retrieve"),
-):
-    try:
-        
-        if not is_licensed or not license_type or not regulations or not service_type or not user_question:
-            raise HTTPException(status_code=400, detail="All fields are required")
+async def filter_terms(payload: FilterTermsRequest):
+    logger.info("Semantic search initiated...")
 
-        logger.info("Semantic search initiated...")
+    results = retrieve_relevant_knowledge(
+        user_question=payload.user_question,
+        is_licensed=payload.is_licensed,
+        license_type=payload.license_type,
+        service_type=payload.service_type,
+        regulations=payload.regulations,
+        k=payload.k,
+    )
 
-        results = retrieve_relevant_knowledge(
-            user_question=user_question,
-            is_licensed=is_licensed,
-            license_type=license_type,
-            service_type=service_type,
-            regulations=regulations,
-            k=k
-        )
-        return JSONResponse(content=results)
-        # # convert the result to json
-        # content = results[0]['content']
-        # source = results[0]['source']
-        # page = results[0].get('page', "Page not specified")
-        # json_blocks = extract_json_objects(content)
+    if not results:
+        raise HTTPException(status_code=404, detail="No documents found")
 
-        # data_js = []
-        # for block in json_blocks:
-        #     try:
-        #         data_js.append(json.loads(block))
-        #     except Exception as e:
-        #         print("Error loading block:", e)
+    js_clean_data = []
+    for idx, result in enumerate(results):
+        content = result.get("content", "")
+        js = extract_json_from_text(content)
 
-        # flattened = flatten_clauses(data_js, source, page)
+        if not js or not isinstance(js, list):
+            logger.warning(f"Skipping result {idx}: no valid JSON array found.")
+            continue
 
-        # terms = extract_clauses_with_system_message(QWEN3_ENDPOINT_CHAT, flattened, 6000, False)
-        # terms = terms.get('response')
+        # Loop over all elements in the JSON array
+        for item in js:
+            if isinstance(item, dict) and "parsed_response" in item:
+                parsed = item["parsed_response"]
+                if parsed:  # Only append non-empty lists
+                    js_clean_data.extend(parsed)
 
-        # print("Json Terms:", terms)
-        # print("Type of Terms:", type(terms))
+    if not js_clean_data:
+        raise HTTPException(status_code=404, detail="No valid parsed responses found")
 
-        # terms_dict = json.loads(terms)
-        # flattened_terms = terms_dict["flattened"]
-        # print("Type of flattened_terms:", type(flattened_terms))
-        # parsed_response = [item for item in flattened_terms if len(item.get("description", "")) >= 50]
+    response = {"results": js_clean_data}
+    return JSONResponse(content=response)
 
-        # # json_parsed_response = dict(parsed_response)
-        # # filtered_terms = filter_terms_js(terms)
-        # json_parsed_response = process_parsed_response(parsed_response)
-        # logger.info(json_parsed_response)
-        # return {
-        #     "parsed_response": json_parsed_response
-        #     }
-
-    except Exception as e:
-        logger.exception("Semantic search failed.")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 

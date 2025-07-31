@@ -22,6 +22,7 @@ if not logger.handlers:
     handler = logging.StreamHandler()
     formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
     handler.setFormatter(formatter)
+    handler.stream.reconfigure(encoding='utf-8') 
     logger.addHandler(handler)
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])

@@ -9,8 +9,6 @@ from langchain.schema.messages import BaseMessage
 from langchain.schema.output import ChatResult, ChatGeneration
 
 
-max_new_tokens = 500
-
 class MyCustomMultiImageChatLLM(BaseChatModel):
     endpoint_url: str
 
@@ -25,7 +23,7 @@ class MyCustomMultiImageChatLLM(BaseChatModel):
         prompt = messages[-1].content  # Use the last message as the prompt
 
         # Extract max_new_tokens
-        max_new_tokens = kwargs.get("max_new_tokens", 2000)
+        max_new_tokens = kwargs.get("max_new_tokens", 4000)
 
         # Get image paths
         image_paths = kwargs.get("image_paths")

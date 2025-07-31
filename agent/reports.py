@@ -140,6 +140,7 @@ class old_Reports():
 class Reports:
     def __init__(
         self,
+        language: str,
         control_number: str,
         list_image_paths: List[str],
         controls_content: Dict,
@@ -152,6 +153,7 @@ class Reports:
             controls_content (Dict): Structured control data.
             api (str): LLM API endpoint.
         """
+        self.language = language
         self.control_number = control_number
         self.image_paths = list_image_paths
         self.api = api
@@ -161,7 +163,6 @@ class Reports:
         self.description_control = controls_content.get("description_control", "")
         self.audit_instructions = controls_content.get("audit_instructions", "")
         self.clause_audit_instructions = controls_content.get("clause_audit_instructions", "")
-
         self.llm = MyCustomMultiImageChatLLM(endpoint_url=self.api)
 
         # Cache generated report
@@ -172,7 +173,7 @@ class Reports:
         return (
             f"Control Number: {self.control_number}\n"
             f"Title: {self.title}\n"
-            f"Description:\n{self.description_control}\n\n"
+            f"Description:\n{self.description_control}\n"
             f"Audit Instructions:\n{self.audit_instructions}\n"
         )
 
@@ -189,7 +190,7 @@ class Reports:
 
         try:
             messages = [
-                SystemMessage(content=self.clause_audit_instructions),
+                SystemMessage(content=self.clause_audit_instructions + f"you must response by {self.language} language.\n"),
                 HumanMessage(content=self.build_control_context())
             ]
             response = self.llm.invoke(messages, image_paths=self.image_paths)
@@ -212,11 +213,19 @@ class Reports:
         schema_instruction = (
             "Return a JSON object conforming to this schema:\n"
             "{\n"
-            '  "compliance_status": "COMPLIANT" | "NON-COMPLIANT" | "INDECISIVE",\n'
-            '  "flags": ["..."],\n'
-            '  "Brief_report": "short summary",\n'
+            '  "compliance_status": one of the following values:\n'
+            '       - "COMPLIANT" (English) or "ممتثل" (Arabic)\n'
+            '       - "NON-COMPLIANT" (English) or "غير ممتثل" (Arabic)\n'
+            '       - "INDECISIVE" (English) or "غير حاسم" (Arabic)\n'
+            '  "flags": ["list of detected issues or notes"],\n'
+            '  "Brief_report": "short summary of the compliance evaluation in the user-selected language",\n'
             '  "needs_human_review": true | false\n'
             "}\n\n"
+            "⚡ Notes:\n"
+            f"- All field **values** (compliance_status, flags, Brief_report) must be in {self.language}.\n"
+            "- Keep the JSON **keys** in English.\n"
+            "- Do not mix languages in the output.\n"
+            "- Output only the JSON object without any explanations.\n\n"
             f"Report:\n{self.report_text}"
         )
 
