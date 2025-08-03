@@ -24,6 +24,7 @@ class MyCustomMultiImageChatLLM(BaseChatModel):
 
         # Extract max_new_tokens
         max_new_tokens = kwargs.get("max_new_tokens", 4000)
+        language = kwargs.get("language", 'ar')
 
         # Get image paths
         image_paths = kwargs.get("image_paths")
@@ -34,6 +35,7 @@ class MyCustomMultiImageChatLLM(BaseChatModel):
         files = [
             ("prompt", (None, prompt)),
             ("max_new_tokens", (None, str(max_new_tokens))),
+            ("language", (None, language))
         ]
 
         for image_path in image_paths:

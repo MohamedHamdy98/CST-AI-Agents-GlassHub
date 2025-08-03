@@ -5,6 +5,7 @@ from langchain.schema import HumanMessage, SystemMessage
 from agent.custome_agent import MyCustomMultiImageChatLLM
 from utils.helper_functions import parse_llm_response_pydantic
 import logging
+from utils.schemas import LLMComplianceResult
 from typing import List, Dict, Optional
 
 class old_Reports():
@@ -140,6 +141,7 @@ class old_Reports():
 class Reports:
     def __init__(
         self,
+        user_message: str,
         language: str,
         control_number: str,
         list_image_paths: List[str],
@@ -153,6 +155,7 @@ class Reports:
             controls_content (Dict): Structured control data.
             api (str): LLM API endpoint.
         """
+        self.user_message = user_message
         self.language = language
         self.control_number = control_number
         self.image_paths = list_image_paths
@@ -168,80 +171,209 @@ class Reports:
         # Cache generated report
         self.report_text: Optional[str] = None
 
+        # Map Arabic LLM outputs to English for validation
+        self.STATUS_MAP = {
+            "ممتثل": "COMPLIANT",
+            "غير ممتثل": "NON-COMPLIANT",
+            "غير حاسم": "INDECISIVE"
+        }
+
+        self.NATURAL_MAP_EN = {
+            "COMPLIANT": "ممتثل",
+            "NON-COMPLIANT": "غير ممتثل",
+            "INDECISIVE": "غير حاسم"
+        }
+
     def build_control_context(self) -> str:
         """Formats the control information for the LLM."""
         return (
+            f"User Message: {self.user_message}"
             f"Control Number: {self.control_number}\n"
             f"Title: {self.title}\n"
             f"Description:\n{self.description_control}\n"
             f"Audit Instructions:\n{self.audit_instructions}\n"
         )
 
-    def generate_report(self) -> str:
-        """
-        Sends the control context and images to the LLM to generate a report.
-        Stores the result in self.report_text.
 
-        Returns:
-            str: Generated report content.
-        """
-        if self.report_text:  # avoid regenerating if already available
-            return self.report_text
+    def clean_llm_json(self, content: str) -> str:
+        content = (content or "").strip()
+        if content.startswith("```"):
+            content = content.split("```json")[-1].split("```")[0].strip()
+        return content
 
+
+    def translate_to_arabic(self, text: str) -> str:
+        """Translate English text to Arabic using LLM."""
+        # Minimal call to LLM to translate
         try:
-            messages = [
-                SystemMessage(content=self.clause_audit_instructions + f"you must response by {self.language} language.\n"),
-                HumanMessage(content=self.build_control_context())
-            ]
-            response = self.llm.invoke(messages, image_paths=self.image_paths)
-            self.report_text = response.content
-            return self.report_text
-        except Exception as e:
-            logging.exception("Failed to generate report.")
-            raise RuntimeError(f"Report generation failed: {e}")
+            prompt = f"Translate the following text to Arabic clearly and concisely:\n{text}"
+            response = self.llm.invoke([HumanMessage(content=prompt)], language="ar")
+            return response.content.strip()
+        except Exception:
+            logging.exception("Translation failed; returning original text.")
+            return text
 
-    def parse_report_text(self) -> dict:
+
+    def translate_if_needed(self, data, language: str):
         """
-        Parses the previously generated report using a structured schema.
-
-        Returns:
-            dict: Structured compliance report.
+        Dynamically translates a string or list of strings into Arabic if needed.
+        Keeps English if user language is not Arabic.
         """
-        if not self.report_text:
-            raise ValueError("No report text available. Please run generate_report() first.")
+        # If not Arabic, return as-is
+        if not language.lower().startswith("ar"):
+            return data
 
-        schema_instruction = (
-            "Return a JSON object conforming to this schema:\n"
-            "{\n"
-            '  "compliance_status": one of the following values:\n'
-            '       - "COMPLIANT" (English) or "ممتثل" (Arabic)\n'
-            '       - "NON-COMPLIANT" (English) or "غير ممتثل" (Arabic)\n'
-            '       - "INDECISIVE" (English) or "غير حاسم" (Arabic)\n'
-            '  "flags": ["list of detected issues or notes"],\n'
-            '  "Brief_report": "short summary of the compliance evaluation in the user-selected language",\n'
-            '  "needs_human_review": true | false\n'
-            "}\n\n"
-            "⚡ Notes:\n"
-            f"- All field **values** (compliance_status, flags, Brief_report) must be in {self.language}.\n"
-            "- Keep the JSON **keys** in English.\n"
-            "- Do not mix languages in the output.\n"
-            "- Output only the JSON object without any explanations.\n\n"
-            f"Report:\n{self.report_text}"
-        )
+        def needs_translation(text: str) -> bool:
+            """Check if text is mostly English/ASCII letters."""
+            return any(c.isalpha() and c.isascii() for c in text)
 
+        # Handle list of strings (flags)
+        if isinstance(data, list):
+            translated_list = []
+            for item in data:
+                translated_list.append(
+                    self.translate_to_arabic(item) if needs_translation(item) else item
+                )
+            return translated_list
+
+        # Handle single string
+        if isinstance(data, str):
+            return self.translate_to_arabic(data) if needs_translation(data) else data
+
+        # Fallback: return data as-is
+        return data
+    
+
+    def batch_translate_to_arabic(self, compliance: str, flags: list[str], brief_report: str) -> tuple[str, list[str], str]:
+        """
+        Translates compliance, flags, and brief_report to natural Arabic in a single LLM call.
+        Returns a tuple (translated_compliance, translated_flags, translated_brief_report).
+        """
         try:
-            response = self.llm.invoke([HumanMessage(content=schema_instruction)], image_paths=self.image_paths)
-            info = parse_llm_response_pydantic(response.content, self.report_text)
+            # Prepare JSON for LLM
+            original_data = {
+                "compliance": compliance,
+                "flags": flags,
+                "brief_report": brief_report
+            }
+
+            prompt = f"""
+            Translate the following JSON fields to Arabic naturally and concisely
+            as if explaining a compliance report to a human.
+            Keep JSON keys the same, return only JSON.
+
+            JSON to translate:
+            {json.dumps(original_data, ensure_ascii=False, indent=2)}
+            """
+
+            response = self.llm.invoke([HumanMessage(content=prompt)], language="ar")
+            translated_content = self.clean_llm_json(response.content)
+
+            translated_json = json.loads(translated_content)
+
+            return (
+                translated_json.get("compliance", compliance),
+                translated_json.get("flags", flags),
+                translated_json.get("brief_report", brief_report),
+            )
+        except Exception:
+            logging.exception("Batch translation failed; returning original values.")
+            return compliance, flags, brief_report
+
+
+    def generate_and_parse_report(self) -> dict:
+        """
+        Generates a compliance report using the LLM and immediately parses it
+        into a structured JSON object according to the defined schema.
+        """
+        try:
+            # 1️⃣ Generate report if not cached
+            if not self.report_text:
+                messages = [
+                    SystemMessage(content=self.clause_audit_instructions),
+                    HumanMessage(content=self.build_control_context())
+                ]
+                response = self.llm.invoke(
+                    messages,
+                    image_paths=self.image_paths,
+                    language=self.language
+                )
+                self.report_text = response.content
+
+            # 2️⃣ Parse report to structured JSON
+            schema_instruction = f"""
+            Return a JSON object conforming to the following schema:
+
+            {{
+            "compliance_status": one of:
+                - "COMPLIANT" (English) / "ممتثل" (Arabic)
+                - "NON-COMPLIANT" (English) / "غير ممتثل" (Arabic)
+                - "INDECISIVE" (English) / "غير حاسم" (Arabic)
+                
+            "flags": ["List of detected issues or notes in the user-selected language"],
+            "Brief_report": "Short summary of the compliance evaluation in the user-selected language",
+            "needs_human_review": true | false
+            }}
+
+            ⚡ Notes:
+            - compliance_status must be in English for validation.
+            - flags and Brief_report must be in {self.language} only.
+            - If the original issue is in English and language is Arabic, translate it to Arabic.
+            - Output only the JSON object without explanations.
+
+            Report:
+            {self.report_text}
+            """
+
+            parse_response = self.llm.invoke(
+                [HumanMessage(content=schema_instruction)],
+                image_paths=self.image_paths,
+                language=self.language
+            )
+
+            # 3️⃣ Clean & parse JSON
+            raw_content = self.clean_llm_json(parse_response.content)
+            if not raw_content:
+                raise RuntimeError("LLM returned an empty response.")
+
+            raw_info = json.loads(raw_content)
+
+            # 4️⃣ Normalize compliance status for validation
+            status = self.STATUS_MAP.get(
+                raw_info.get("compliance_status", "").strip(),
+                raw_info.get("compliance_status", "")
+            )
+
+            info = LLMComplianceResult.model_validate({
+                **raw_info,
+                "compliance_status": status
+            })
+
+            # 5️⃣ Translate to Arabic only if user selected Arabic
+            is_arabic = self.language.lower().startswith("ar")
+
+            compliance = info.compliance_status
+            compliance_natural = self.NATURAL_MAP_EN.get(compliance, compliance)
+            flags = info.flags
+            brief_report = info.Brief_report
+
+            if is_arabic:
+                compliance, flags, brief_report = self.batch_translate_to_arabic(
+                    compliance_natural, flags, brief_report
+                )
+
             return {
-                "compliance": info.get("compliance_status", ""),
-                "flags": info.get("flags", []),
-                "needs_review": info.get("needs_human_review", False),
-                "Brief_report": info.get("Brief_report", ""),
+                "compliance": compliance,
+                "flags": flags,
+                "needs_review": info.needs_human_review,
+                "Brief_report": brief_report,
                 "report": self.report_text
             }
+
         except Exception as e:
-            logging.exception("Error in parsing report.")
+            logging.exception("Error in generating and parsing report.")
             return {"error": str(e), "report": self.report_text}
+
 
     def run_full_pipeline(self) -> dict:
         """
@@ -250,5 +382,5 @@ class Reports:
         Returns:
             dict: Final structured output with report.
         """
-        self.generate_report()
-        return self.parse_report_text()
+        # self.generate_report()
+        return self.generate_and_parse_report()

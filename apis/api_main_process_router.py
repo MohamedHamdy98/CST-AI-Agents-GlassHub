@@ -42,7 +42,8 @@ QWEN2_VL_ENDPOINT = os.getenv('QWEN2_VL_ENDPOINT')
 
 @router.post("/generate_report", description="Generate report based on form inputs and uploaded images.")
 async def generate_report(
-    language: str = Form('Arabic', description="Select Arabic or English language for results."),
+    user_message: str = Form(None, description="User Message."),
+    language: str = Form('ar', description="Select (ar) for Arabic or (en) for English language for results."),
     title: str = Form(..., description="Control title"),
     description_control: str = Form(..., description="Description of the control"),
     audit_instructions: str = Form(..., description="Audit instructions"),
@@ -72,6 +73,7 @@ async def generate_report(
         }
 
         reports_generator = Reports(
+            user_message=user_message,
             language=language,
             control_number=title,
             list_image_paths=image_paths,

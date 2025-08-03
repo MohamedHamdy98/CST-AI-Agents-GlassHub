@@ -13,36 +13,43 @@ QWEN3_ENDPOINT_CHAT = os.getenv('QWEN3_ENDPOINT_CHAT')
 class ChatBotNotCompliance:
     def __init__(self, description_control, requirements_control, report):
         self.history = []
+        '''
         self.system_message = (
             "You are an intelligent assistant that can communicate in both Arabic and English. "
             "Your sole task is to help the user understand the audit report results and their compliance "
-            "with the mentioned controls and requirements only.\n\n"
-            
+            "with the mentioned controls and requirements.\n\n"
+
             "أنت مساعد ذكي تتحدث العربية والإنجليزية، ومهمتك الوحيدة هي مساعدة المستخدم في فهم "
-            "نتائج تقرير التدقيق ومدى التزامه بالضوابط والمتطلبات المذكورة فقط.\n\n"
+            "نتائج تقرير التدقيق ومدى التزامه بالضوابط والمتطلبات المذكورة.\n\n"
 
-            "🚫 You are strictly forbidden from answering any question that is not explicitly related to the following content:\n"
-            "🚫 يُمنع عليك الإجابة عن أي سؤال لا يتعلّق صراحةً بالمحتوى التالي:\n\n"
+            "🚫 You are strictly forbidden from answering questions unrelated to the audit content.\n"
+            "🚫 يُمنع عليك الإجابة عن أي سؤال لا يتعلّق بمحتوى التدقيق.\n\n"
 
-            f"📌 **Requirements Details / تفاصيل المتطلبات:**\n{requirements_control}\n\n"
-            f"📌 **Application Controls & Instructions / الضوابط والتعليمات الخاصة بالتطبيق:**\n{description_control}\n\n"
-            f"📌 **Audit Report Summary / ملخص تقرير التدقيق:**\n{report}\n\n"
+            "📌 **Audit Content:**\n"
+            f"- Requirements / المتطلبات:\n{requirements_control}\n\n"
+            f"- Controls & Instructions / الضوابط والتعليمات:\n{description_control}\n\n"
+            f"- Audit Report / تقرير التدقيق:\n{report}\n\n"
 
-            "🔒 If the user asks an unrelated question, always respond with the fixed message:\n"
+            "💡 When the user asks a question:\n"
+            "- If it is about compliance, even indirectly (like 'why am I non-compliant?'), analyze and answer using the audit content.\n"
+            "- إذا كان السؤال يتعلق بالامتثال ولو بشكل غير مباشر (مثل: لماذا أنا غير ممتثل؟) فأجب باستخدام محتوى التدقيق.\n"
+            "- If it is clearly unrelated, respond with:\n"
             "\"عذرًا، يمكنني فقط الإجابة عن الأسئلة المتعلقة بتفاصيل التدقيق والضوابط المذكورة أعلاه.\"\n"
-            "\"Sorry, I can only answer questions related to the audit details and mentioned controls.\"\n\n"
-
-            "💡 When responding:\n"
-            "- Auto-detect the user’s language and respond in Arabic or English accordingly.\n"
-            "- عند الرد على استفسارات المستخدم، استخدم أسلوبًا تحليليًا واضحًا ومرتبًا دون ذكر العناوين أو الأقسام أعلاه.\n"
-            "- Focus only on providing a direct, clear answer based strictly on the given content.\n"
-            "- ركّز فقط على تقديم إجابة مباشرة مستندة إلى المحتوى دون استخدام مصطلحات تقنية.\n"
-            "- If a non-compliance point appears, explain it based on the difference between the required controls and the actual findings in the report.\n"
-            "- إذا ظهرت نقطة عدم امتثال، فسّر السبب بناءً على التباين بين المطلوب والمذكور فعليًا في التقرير.\n"
+            "\"Sorry, I can only answer questions related to the audit details and mentioned controls.\"\n"
+        )'''
+        self.system_message = (
+            "أنت مساعد ذكي تتحدث العربية والإنجليزية، ومهمتك هي مساعدة المستخدم في فهم نتائج تقرير التدقيق ومدى التزامه بالضوابط والمتطلبات.\n"
+            "ستُعرض عليك أسئلة تتعلق بتقرير تدقيق معين، ويجب أن تبني إجابتك استنادًا إلى التالي:\n\n"
+            "📌 **تفاصيل المتطلبات:**\n"
+            f"{requirements_control}\n\n"
+            "📌 **الضوابط والتعليمات الخاصة بالتطبيق:**\n"
+            f"{description_control}\n\n"
+            "📌 **ملخص تقرير التدقيق:**\n"
+            f"{report}\n\n"
+            "عند الرد على استفسارات المستخدم، استخدم أسلوبًا تحليليًا واضحًا ومرتبًا. لا تذكر أسماء الأقسام أو العناوين أعلاه في ردودك (مثل: 'تفاصيل المتطلبات' أو 'الضوابط والتعليمات' أو غيرها).\n"
+            "ركّز فقط على تقديم إجابة مباشرة مدعومة بالأدلة من محتوى التقرير، دون ذكر العناوين أو المصطلحات التقنية.\n"
+            "إذا كانت هناك نقطة عدم امتثال، فسّر السبب بناءً على التباين بين المطلوب والمذكور فعليًا في التقرير.\n"
         )
-
-
-
         print("DEBUG: System message initialized.")
     
     def build_prompt(self, user_message):
@@ -80,15 +87,16 @@ class ChatBotNotCompliance:
         # Save to history
         self.history.append({'user': user_message, 'assistant': bot_reply})
         # Keep only last 10 turns
-        if len(self.history) > 10:
-            self.history = self.history[-10:]
+        if len(self.history) > 20:
+            self.history = self.history[-20:]
 
         return bot_reply
 
 
 class ChatBotGeneral:
-    def __init__(self, clauses: list):
+    def __init__(self, results: list):
         self.history = []
+        '''
         self.system_message = (
             "You are an intelligent assistant specialized in explaining regulatory rules and requirements.\n"
             "You will be given a set of regulatory items. Your task is to discuss these items in detail with the user "
@@ -98,15 +106,24 @@ class ChatBotGeneral:
             "\"عذرًا، يمكنني فقط الإجابة عن الأسئلة المتعلقة بالبُنود التنظيمية المذكورة.\" / "
             "\"Sorry, I can only answer questions related to the mentioned regulatory items.\"\n\n"
             "You can understand and respond in both Arabic and English depending on the user's language.\n"
+        )'''
+        self.system_message = (
+            "أنت مساعد ذكي متخصص في شرح الضوابط والمتطلبات التنظيمية.\n"
+            "سيتم إعطاؤك مجموعة من البنود التنظيمية، ومهمتك هي مناقشة هذه البنود بالتفصيل مع المستخدم والإجابة عن أي استفسارات تتعلق بها.\n\n"
         )
-
-
+        titles = []
+        descriptions = []
+        audits = []
         # دمج كل البنود داخل system prompt
-        for clause in clauses:
-            title = clause.title
-            description_control = clause.clause_instruction.description_control
-            audit_steps = clause.clause_instruction.requirements_control.Audit_Instructions
-            audit_text = "\n".join([f"• {step}" for step in audit_steps])
+        for result in results:
+            titles.append(result.title)
+            descriptions.append(result.clause_instruction.description_control)
+            audit_steps = result.clause_instruction.requirements_control.Audit_Instructions
+            audits.extend(audit_steps)
+
+        title = " | ".join(titles)
+        description_control = "\n".join(descriptions)
+        audit_text = "\n".join([f"• {step}" for step in audits])
 
         self.system_message += (
             f"📌 **عنوان البند / Item Title:** {title}\n"
@@ -129,8 +146,6 @@ class ChatBotGeneral:
             "💡 اختر لغة الرد (عربية أو إنجليزية) بناءً على لغة المستخدم تلقائيًا.\n"
             "💡 Automatically respond in the user's language (Arabic or English).\n"
         )
-
-
 
         print("DEBUG: System message initialized.")
 
@@ -167,7 +182,124 @@ class ChatBotGeneral:
             bot_reply = f"Exception: {str(e)}"
 
         self.history.append({'user': user_message, 'assistant': bot_reply})
-        if len(self.history) > 10:
-            self.history = self.history[-10:]
+        if len(self.history) > 20:
+            self.history = self.history[-20:]
 
         return bot_reply
+
+
+class ChatFilterGeneral:
+    def __init__(self, results: list, user_input: str, model_response: str):
+        titles = []
+        descriptions = []
+        audits = []
+
+        for result in results:
+            titles.append(result.title)
+            descriptions.append(result.clause_instruction.description_control)
+            audit_steps = result.clause_instruction.requirements_control.Audit_Instructions
+            audits.extend(audit_steps)
+
+        title_text = " | ".join(titles)
+        description_control = "\n".join(descriptions)
+        audit_text = "\n".join([f"• {step}" for step in audits])
+
+        self.system_message = f"""
+            هل هذا الرد التالي اعتمد فقط على البيانات المرفقة أم على معرفة خارجية؟
+            العنوان:
+            {title_text}
+            البيانات:
+            {description_control}
+            {audit_text}
+            سؤال المستخدم:
+            {user_input}
+            رد النموذج:
+            {model_response}
+            أجب بكلمة واحدة فقط: نعم أو لا
+            او yes or no based on the language of text
+            """
+
+    def chat(self, max_tokens=512, thinking=False):
+        data = {
+            'prompt': self.system_message,
+            'max_tokens': str(max_tokens),
+            'thinking': str(thinking).lower()
+        }
+        try:
+            response = requests.post(
+                QWEN3_ENDPOINT_CHAT,
+                headers={
+                    'accept': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                data=data
+            )
+            if response.status_code == 200:
+                result = response.json()
+                bot_reply = result.get("response", "").strip().lower()
+                if "نعم" in bot_reply or "yes" in bot_reply:
+                    return True
+                return False
+            else:
+                print(f"❌ Error {response.status_code}: {response.text}")
+                return False
+        except Exception as e:
+            print(f"Exception: {str(e)}")
+            return False
+
+
+class ChatFilterNonCompliance:
+    def __init__(self, user_input: str, model_response: str, 
+                 description_control: str, requirements_control: str, report: str):
+        
+        self.system_message = f"""
+هل هذا الرد التالي اعتمد فقط على البيانات المرفقة أم على معرفة خارجية؟
+
+البيانات:
+- الضوابط والتعليمات:
+{description_control}
+
+- المتطلبات:
+{requirements_control}
+
+- تقرير التدقيق:
+{report}
+
+سؤال المستخدم:
+{user_input}
+
+رد النموذج:
+{model_response}
+
+أجب بكلمة واحدة فقط: نعم أو لا
+او yes or no based on the language of text
+"""
+
+    def chat(self, max_tokens=512, thinking=False) -> bool:
+        data = {
+            'prompt': self.system_message,
+            'max_tokens': str(max_tokens),
+            'thinking': str(thinking).lower()
+        }
+        try:
+            response = requests.post(
+                QWEN3_ENDPOINT_CHAT,
+                headers={
+                    'accept': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                data=data
+            )
+            if response.status_code == 200:
+                result = response.json()
+                bot_reply = result.get("response", "").strip().lower()
+                
+                if "نعم" in bot_reply or "yes" in bot_reply:
+                    return True
+                return False
+            else:
+                print(f"❌ Error {response.status_code}: {response.text}")
+                return False
+        except Exception as e:
+            print(f"Exception: {str(e)}")
+            return False
