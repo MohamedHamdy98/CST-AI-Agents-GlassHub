@@ -6,7 +6,7 @@ uvicorn==0.34.0
 python-multipart==0.0.20
 pillow == 11.3.0
 azure-storage-blob == 12.26.0
-python-dotenv == 0.0.1
+python-dotenv
 pydantic == 2.11.7
 langchain-huggingface == 0.3.1
 langchainhub == 0.1.21
