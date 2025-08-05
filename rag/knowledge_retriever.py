@@ -67,6 +67,34 @@ def retrieve_relevant_knowledge(
     return formatted_results
 
 
+def retrieve_relevant_knowledge_regulator(
+    license_type: str = "",
+    regulations: str = "",
+    k: int = 10
+):
+    db = load_vectorstore()
+
+    enriched_query = f"""
+    نوع الترخيص → {license_type}
+    التنظيمات → {regulations}
+    """
+
+    results = db.similarity_search(enriched_query.strip(), k=k)
+
+    formatted_results = []
+    for doc in results:
+        source = doc.metadata.get("source", "File not specified")
+        page = doc.metadata.get("page", "Page not specified")
+        content = doc.page_content.strip()
+
+        formatted_results.append({
+            "source": source,
+            "page": page,
+            "content": content
+        })
+    return formatted_results
+
+
 # For CLI Testing
 if __name__ == "__main__":
     print("🔎 Welcome to the VMinds Knowledge Retriever!")

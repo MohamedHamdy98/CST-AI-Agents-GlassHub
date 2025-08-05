@@ -2,6 +2,7 @@ import os, logging, glob, sys, httpx, json
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
+from typing import List, Union
 from utils.schemas import FileURLs, FileURLsRag
 from docx import Document
 from dotenv import load_dotenv
@@ -10,7 +11,7 @@ from utils.helper_functions import (chunk_pages, estimate_chunk_size,save_temp_f
                                     convert_docx_to_pdf, extract_pages_from_pdf, init_oss_bucket,
                                     upload_to_alibaba_oss_static, download_files_from_cloud_storage,
                                     retrieve_full_knowledge_from_docx, load_documents,
-                                    process_all_formatted_results)
+                                    process_all_formatted_results, process_all_formatted_results_no_llm)
 
 
 # Load environment variables from .env file
@@ -42,8 +43,121 @@ BUCKET_NAME = os.getenv("OSS_BUCKET")
 QWEN3_ENDPOINT = os.getenv('QWEN3_ENDPOINT')
 QWEN3_ENDPOINT_CHAT = os.getenv('QWEN3_ENDPOINT_CHAT')
 
+@router.post("/extract_terms", description="Extract terms from multiple Word files using LLM")
+def extract_terms(
+    word_file: List[UploadFile] = File(..., description="Upload one or more Word files"),
+    name_word_file: Union[List[str], str] = Form(..., description="Matching names for the uploaded files"),
+    language: str = Form(..., description="Arabic or English"),
+    max_tokens: int = Form(512),
+    thinking: bool = Form(False),
+    timeout: int = Form(180)
+):
+    response_path = "./database/llm_raw_outputs"
+    os.makedirs(response_path, exist_ok=True)
+    all_results = []
 
+    # Normalize names into a list
+    if isinstance(name_word_file, list):
+        if len(name_word_file) == 1 and "," in name_word_file[0]:
+            # User sent a single comma-separated string
+            names_list = [name.strip() for name in name_word_file[0].split(",")]
+        else:
+            # User sent multiple form fields
+            names_list = [name.strip() for name in name_word_file]
+    else:
+        # User sent a plain string (rare case)
+        names_list = [name.strip() for name in name_word_file.split(",")]
 
+    try:
+        logger.info("📥 Endpoint /extract_terms called.")
+        logger.info(f"Received {len(word_file)} files with names: {names_list}")
+
+        if len(word_file) != len(names_list):
+            return JSONResponse(status_code=400, content={"error": "Number of files and names must match"})
+
+        for file, file_name in zip(word_file, names_list):
+            logger.info(f"Processing file: {file.filename} as {file_name}")
+
+            # ✅ Validate extension
+            if not file.filename.endswith(".docx"):
+                logger.warning(f"❌ Skipping {file.filename} (not .docx)")
+                continue
+
+            # ✅ Save temp file
+            os.makedirs("tmp", exist_ok=True)
+            word_path = save_temp_file(file, f"tmp/{file.filename}")
+            pdf_path = word_path.replace(".docx", ".pdf")
+            logger.info(f"Saved DOCX to {word_path}, converting to {pdf_path}")
+
+            # ✅ Convert DOCX → PDF → Extract Pages → Chunk
+            convert_docx_to_pdf(word_path, pdf_path)
+            pages = extract_pages_from_pdf(pdf_path)
+            chunk_size = estimate_chunk_size(pages, max_tokens=max_tokens)
+            chunks = chunk_pages(pages, chunk_size=chunk_size)
+            logger.info(f"{file.filename}: {len(pages)} pages → {len(chunks)} chunks")
+
+            # ✅ Build prompts and collect responses
+            all_responses = ""
+            for idx, chunk in enumerate(chunks):
+                prompt = (
+                    f"Your task is to extract (التعليمات والبنود والمطلوب من المستخدم ان يقوم به او ما يجب ان يتجنبه ) "
+                    f"from raw text:\n\n{chunk}\nThe language is {language}"
+                )
+                try:
+                    logger.info(f"⏳ Sending prompt {idx+1}/{len(chunks)} for {file.filename}")
+                    headers = {"accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
+                    data = {
+                        "prompt": prompt,
+                        "name_word_file": file_name,
+                        "max_tokens": str(max_tokens),
+                        "thinking": str(thinking).lower(),
+                    }
+                    response = httpx.post(QWEN3_ENDPOINT, headers=headers, data=data, timeout=timeout)
+
+                    if response.status_code != 200:
+                        raise Exception(f"LLM API failed: {response.status_code} - {response.text}")
+
+                    llm_response = response.json().get("response", "")
+                    all_responses += llm_response + "\n"
+                except Exception as e:
+                    logger.exception(f"❌ Error processing chunk {idx+1} for {file.filename}: {str(e)}")
+
+            # ✅ Save combined output
+            final_docx_path = os.path.join(response_path, f"{file_name}_response.docx")
+            doc = Document()
+            doc.add_paragraph(all_responses.strip())
+            doc.save(final_docx_path)
+            logger.info(f"✅ Saved output to {final_docx_path}")
+
+            # ✅ Upload to Alibaba OSS
+            blob_name = f"{file_name}_response.docx"
+            bucket = init_oss_bucket(ACCESS_KEY_ID, ACCESS_KEY_SECRET, ENDPOINT, BUCKET_NAME)
+            url = upload_to_alibaba_oss_static(bucket, final_docx_path, f"cst_rag/{blob_name}")
+            logger.info(f"📤 Uploaded {blob_name} to Alibaba Cloud → {url}")
+
+            all_results.append({"file_name": file_name, "llm_response": all_responses.strip(), "url": url})
+
+            # ✅ Cleanup temp files
+            for f in [word_path, pdf_path]:
+                if os.path.exists(f):
+                    os.remove(f)
+                    logger.info(f"🧹 Deleted temp file: {f}")
+
+        return {"results": all_results}
+
+    except Exception as e:
+        logger.exception(f"🔥 Unexpected error: {str(e)}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    finally:
+        # Clear old responses
+        for file_path in glob.glob(os.path.join(response_path, "*")):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                logger.warning(f"⚠️ Could not delete {file_path}: {e}")
+
+'''
 @router.post("/extract_terms", description="Extract terms from Word file using LLM")
 def extract_terms(
     word_file: UploadFile = File(...),
@@ -147,7 +261,7 @@ def extract_terms(
                     logger.info(f"🧹 Deleted temp file: {file}")
             except Exception as cleanup_err:
                 logger.warning(f"⚠️ Could not delete temp file {file}: {cleanup_err}")
-
+'''
 
 @router.post("/generate_controls")
 def generate_controls(

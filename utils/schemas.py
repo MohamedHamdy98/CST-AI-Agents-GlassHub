@@ -38,6 +38,10 @@ class FilterTermsRequest(BaseModel):
     service_type: str
     k: int = 4
 
+class FilterTermsRequestRegulator(BaseModel):
+    license_type: str
+    regulations: str
+    k: int = 4
 
 # RAG
 class FileURLsRag(BaseModel):

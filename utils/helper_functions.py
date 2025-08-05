@@ -17,7 +17,11 @@ from urllib.parse import quote
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
-
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[logging.StreamHandler(sys.stdout)],
+    encoding='utf-8'
+)
 load_dotenv()
 
 QWEN3_ENDPOINT_CHAT = os.getenv('QWEN3_ENDPOINT_CHAT')
@@ -540,7 +544,87 @@ def retrieve_full_knowledge_from_docx(documents):
 
     return formatted_results
 
+def process_all_formatted_results(formatted_results, min_length=10):
+    all_parsed_responses = []
 
+    for item in formatted_results:
+        content = item["content"]
+        source = item["source"]
+        page = item.get("page", "Page not specified")
+
+        # 1️⃣ Extract JSON blocks
+        json_blocks = extract_json_objects(content)
+        data_js = []
+        for block in json_blocks:
+            try:
+                data_js.append(json.loads(block))
+            except Exception as e:
+                print(f"Error loading block from {source}, page {page}: {e}")
+
+        if not data_js:
+            print(f"No valid JSON blocks found in {source}, page {page}")
+            continue
+
+        # 2️⃣ Flatten clauses
+        flattened = flatten_clauses(data_js, source, page)
+
+        # 3️⃣ Call LLM to extract clauses
+        terms = extract_clauses_with_system_message(QWEN3_ENDPOINT_CHAT, flattened, 10000, False)
+
+        # 4️⃣ Normalize LLM output
+        # Case 1: dict with "response" string
+        if isinstance(terms, dict):
+            terms = terms.get("response", terms)  # get JSON string
+
+        # Case 2: now terms should be str
+        if isinstance(terms, str):
+            try:
+                terms_dict = json.loads(terms)
+            except json.JSONDecodeError as e:
+                print(f"Could not decode terms for {source}, page {page}: {e}")
+                continue
+        else:
+            print(f"Unexpected type {type(terms)} for {source}, page {page}")
+            continue
+
+        # 5️⃣ Extract flattened terms
+        flattened_terms = terms_dict.get("flattened", [])
+        parsed_response = [
+            clause for clause in flattened_terms
+            if len(clause.get("description", "")) >= min_length
+        ]
+
+        if not parsed_response:
+            print(f"No parsed clauses survived filtering for {source}, page {page}")
+            continue
+
+        json_parsed_response = process_parsed_response({"parsed_response": parsed_response})
+        all_parsed_responses.append(json_parsed_response)
+
+    return all_parsed_responses
+
+
+
+def process_all_formatted_results_no_llm(formatted_results):
+    all_parsed_responses = []
+
+    for item in formatted_results:
+        source = item['source']
+        page = item.get('page', "Page not specified")
+        content = item['content'].strip()
+
+        # If content is already a clause, just wrap it
+        parsed_response = [{
+            "title": f"Extracted from {source}",
+            "description": content
+        }]
+
+        all_parsed_responses.append(parsed_response)
+
+    return all_parsed_responses
+
+
+'''
 def process_all_formatted_results(formatted_results):
     all_parsed_responses = []
 
@@ -563,11 +647,24 @@ def process_all_formatted_results(formatted_results):
             continue
 
         flattened = flatten_clauses(data_js, source, page)
-        print("FLATTENED:", flattened)
+        # print("FLATTENED:", flattened)
         terms = extract_clauses_with_system_message(QWEN3_ENDPOINT_CHAT, flattened, 10000, False)
+        print("Type of TERMS:", type(terms))
+        print("TERMS:", terms)
+        if isinstance(terms, list):
+            flattened_terms = terms
+        elif isinstance(terms, dict):
+            flattened_terms = terms.get("flattened", [])
+        else:
+            # parse JSON string
+            try:
+                terms_dict = json.loads(terms)
+                flattened_terms = terms_dict.get("flattened", [])
+            except:
+                flattened_terms = []
 
-        if isinstance(terms, dict):
-            terms = terms.get('response', '')
+        # if isinstance(terms, dict):
+        #     terms = terms.get('response', '')
 
         try:
             terms_dict = json.loads(terms)
@@ -582,3 +679,4 @@ def process_all_formatted_results(formatted_results):
             print(f"Error processing terms from {source}, page {page}: {e}")
     
     return all_parsed_responses
+'''

@@ -42,7 +42,6 @@ QWEN2_VL_ENDPOINT = os.getenv('QWEN2_VL_ENDPOINT')
 
 @router.post("/generate_report", description="Generate report based on form inputs and uploaded images.")
 async def generate_report(
-    user_message: str = Form(None, description="User Message."),
     language: str = Form('ar', description="Select (ar) for Arabic or (en) for English language for results."),
     title: str = Form(..., description="Control title"),
     description_control: str = Form(..., description="Description of the control"),
@@ -73,7 +72,7 @@ async def generate_report(
         }
 
         reports_generator = Reports(
-            user_message=user_message,
+            user_message="",
             language=language,
             control_number=title,
             list_image_paths=image_paths,
@@ -104,9 +103,19 @@ def get_logs():
         logs = f.readlines()
     return {"logs": logs}
 
+@router.delete("/clear_log")
+def clear_log():
+    log_file = "./database/logs/app.log"
+    if not os.path.exists(log_file):
+        raise HTTPException(status_code=404, detail="Log file not found")
+    # Clear the log file
+    with open(log_file, "w", encoding="utf-8") as f:
+        f.truncate(0)
+    return {"message": "Log file cleared successfully"} 
+
 @router.get("/")
 def home():
-    return {"message": "Welcome to the GlassHub Agent for Enterprise and Supplier Compliance!"}
+    return {"message": "Welcome to the GlassHub Agent for Enterprise and Regulator Compliance!"}
 
 
 

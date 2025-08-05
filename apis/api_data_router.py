@@ -4,11 +4,11 @@ from fastapi import APIRouter, Form, HTTPException, UploadFile, File
 import logging
 from fastapi.responses import JSONResponse
 # from utils.dynamic_controls import generate_compliance_prompt, save_control_prompt, merge_all_controls
-from utils.schemas import FilterTermsRequest, FileURLsRag
+from utils.schemas import FilterTermsRequestRegulator, FileURLsRag
 from utils.helper_functions import (extract_json_from_text, extract_json_objects, flatten_clauses, init_oss_bucket)
 from dotenv import load_dotenv
 from utils.create_instructions import process_parsed_response
-from rag.knowledge_retriever import retrieve_relevant_knowledge
+from rag.knowledge_retriever import retrieve_relevant_knowledge_regulator
 from rag.knowledge_ingestion import ingest_company_knowledge, download_files_from_cloud_storage
 
 
@@ -84,14 +84,11 @@ def using_rag_system(file_urls_json: FileURLsRag):
 
 # For RAG System
 @router.post("/filter_terms", description="Search for relevant documents based on user input and company details")
-async def filter_terms(payload: FilterTermsRequest):
+async def filter_terms(payload: FilterTermsRequestRegulator):
     logger.info("Semantic search initiated...")
 
-    results = retrieve_relevant_knowledge(
-        user_question=payload.user_question,
-        is_licensed=payload.is_licensed,
+    results = retrieve_relevant_knowledge_regulator(
         license_type=payload.license_type,
-        service_type=payload.service_type,
         regulations=payload.regulations,
         k=payload.k,
     )

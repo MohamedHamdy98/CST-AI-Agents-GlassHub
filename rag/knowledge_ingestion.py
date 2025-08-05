@@ -26,15 +26,6 @@ def create_path_directory(path: str) -> str:
 DOCX_DIRECTORY = create_path_directory("./database/glasshub_files")
 VECTORSTORE_DIRECTORY = create_path_directory("./database/vectorstore_glasshub")
 
-# PDF_DIRECTORY = create_path_directory("./database/glasshub_files")
-
-# Download files from cloud storage
-# def download_files_from_cloud_storage(urls):
-#     for url in urls:
-#         filename = os.path.basename(url.split("?")[0])
-#         local_path = os.path.join("./database/glasshub_files", filename)
-#         download_from_alibaba_oss(url, local_path)
-
 def download_files_from_cloud_storage(json_data: List[str], download_dir="./database/glasshub_files"):
     os.makedirs(download_dir, exist_ok=True)
 
