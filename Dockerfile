@@ -9,9 +9,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Set work directory
 WORKDIR /app
 
-# Install system dependencies for FastAPI and cv2 if needed
+# Install system dependencies (added tk here)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc ffmpeg libgl1 libglib2.0-0 curl \
+    tk-dev python3-tk python3-dev \
+    ca-certificates openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
