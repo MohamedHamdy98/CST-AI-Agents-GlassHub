@@ -6,7 +6,7 @@ from agent.custome_agent import MyCustomMultiImageChatLLM
 from utils.helper_functions import parse_llm_response_pydantic
 import logging
 from utils.schemas import LLMComplianceResult
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 class old_Reports():
 
@@ -375,6 +375,37 @@ class Reports:
             return {"error": str(e), "report": self.report_text}
 
 
+    def combine_image_results(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        combined_flags = []
+        combined_brief = []
+        combined_report = []
+        overall_status = "COMPLIANT"
+        needs_review = False
+        
+
+        for item in data:
+            status = str(item["compliance"])
+            if status == "ComplianceStatus.NON_COMPLIANT":
+                overall_status = "NON-COMPLIANT"
+            elif status == "ComplianceStatus.INDECISIVE" and overall_status != "NON-COMPLIANT":
+                overall_status = "INDECISIVE"
+
+            combined_flags.extend(item.get("flags", []))
+            combined_brief.append(item.get("Brief_report", ""))
+            combined_report.append(item.get("report", ""))
+            if item.get("needs_review"):
+                needs_review = True
+
+        return {
+            "compliance": overall_status,
+            "flags": combined_flags,
+            "Brief_report": "\n".join(combined_brief),
+            "needs_review": needs_review,
+            "report": "\n".join(combined_report)
+
+        }
+
+
     def run_full_pipeline(self) -> dict:
         """
         Convenience method: runs report generation + parsing.
@@ -384,3 +415,29 @@ class Reports:
         """
         # self.generate_report()
         return self.generate_and_parse_report()
+
+    def run_full_pipeline_ids(self) -> List[dict]:
+        """
+        Runs the full pipeline for each image and returns structured results for all.
+        """
+        results = []
+
+        for idx, image_path in enumerate(self.image_paths):
+            self.report_text = ""  # Reset before each image
+            self.image_paths = [image_path]  # Process one image at a time
+
+            try:
+                parsed = self.generate_and_parse_report()
+                results.append({
+                    "id": idx,
+                    "image_name": os.path.basename(image_path),
+                    **parsed
+                })
+            except Exception as e:
+                results.append({
+                    "id": idx,
+                    "image_name": os.path.basename(image_path),
+                    "error": str(e)
+                })
+
+        return results

@@ -60,6 +60,7 @@ async def generate_report(
             image_path = os.path.join(tmp_folder, image.filename)
             with open(image_path, "wb") as buffer:
                 shutil.copyfileobj(image.file, buffer)
+            image.file.close()
             image_paths.append(image_path)
 
         logger.info(f"Saved {len(image_paths)} images for processing.")
@@ -79,10 +80,11 @@ async def generate_report(
             controls_content=control_data,
             api=QWEN2_VL_ENDPOINT
         )
-        result = reports_generator.run_full_pipeline()
+        result = reports_generator.run_full_pipeline_ids()
+        combined_report = reports_generator.combine_image_results(result)
 
         logger.info("Report generation completed.")
-        return {"result": result}
+        return {"results": result, "result_all": combined_report}
 
     except Exception as e:
         logger.error(f"Error in generate_report: {e}")
