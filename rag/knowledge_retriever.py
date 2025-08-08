@@ -12,10 +12,10 @@ VECTORSTORE_DIRECTORY = create_path_directory("./database/vectorstore_glasshub")
 
 
 # Step 1: Load the FAISS vectorstore
-def load_vectorstore():
-    if not os.path.isdir(VECTORSTORE_DIRECTORY):
+def load_vectorstore(path_load):
+    if not os.path.isdir(path_load):
         raise FileNotFoundError(
-            f"❌ Vectorstore directory '{VECTORSTORE_DIRECTORY}' not found.\n"
+            f"❌ Vectorstore directory '{path_load}' not found.\n"
             "💡 Please run the ingestion script to generate the vector store."
         )
     
@@ -24,7 +24,7 @@ def load_vectorstore():
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     
     db = FAISS.load_local(
-        VECTORSTORE_DIRECTORY,
+        path_load,
         embeddings,
         allow_dangerous_deserialization=True  # Needed if pickle was used during save
     )
@@ -33,7 +33,8 @@ def load_vectorstore():
 
 
 # Step 2: Retrieve top-k most relevant documents
-def retrieve_relevant_knowledge(
+def retrieve_relevant_knowledge_enterprise(
+    path_load: str = "",
     user_question: str = "",
     is_licensed: str = "",
     license_type: str = "",
@@ -41,7 +42,7 @@ def retrieve_relevant_knowledge(
     regulations: str = "",
     k: int = 10
 ):
-    db = load_vectorstore()
+    db = load_vectorstore(path_load)
 
     enriched_query = f"""
     استعلام المستخدم: {user_question}
@@ -68,11 +69,12 @@ def retrieve_relevant_knowledge(
 
 
 def retrieve_relevant_knowledge_regulator(
+    path_load: str = "",
     license_type: str = "",
     regulations: str = "",
     k: int = 10
 ):
-    db = load_vectorstore()
+    db = load_vectorstore(path_load)
 
     enriched_query = f"""
     نوع الترخيص → {license_type}
@@ -104,7 +106,7 @@ if __name__ == "__main__":
             print("👋 Exiting.")
             break
         try:
-            knowledge = retrieve_relevant_knowledge(question)
+            knowledge = retrieve_relevant_knowledge_regulator(question)
             if knowledge.strip():
                 print("\n📚 Retrieved Knowledge:")
                 print(knowledge)

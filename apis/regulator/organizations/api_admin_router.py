@@ -12,24 +12,18 @@ from utils.helper_functions import (chunk_pages, estimate_chunk_size,save_temp_f
                                     upload_to_alibaba_oss_static, download_files_from_cloud_storage,
                                     retrieve_full_knowledge_from_docx, load_documents,
                                     process_all_formatted_results, process_all_formatted_results_no_llm)
-
+from utils.logs import setup_logger
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Logger setup
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
-# ✅ prevent adding multiple handlers
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
-    handler.setFormatter(formatter)
-    handler.stream.reconfigure(encoding='utf-8') 
-    logger.addHandler(handler)
 
-router = APIRouter(prefix="/api/v1", tags=["admin"])
+logger = setup_logger(__name__)
+print(f"🔥 DEBUG: Module {__name__} logger setup complete!")
+
+router = APIRouter(prefix="/api/v1/regulator/organization", tags=["Regulator Organization Admin"])
 
 
 # Alibaba cloud Connection
@@ -43,8 +37,9 @@ BUCKET_NAME = os.getenv("OSS_BUCKET")
 QWEN3_ENDPOINT = os.getenv('QWEN3_ENDPOINT')
 QWEN3_ENDPOINT_CHAT = os.getenv('QWEN3_ENDPOINT_CHAT')
 
+
 @router.post("/extract_terms", description="Extract terms from multiple Word files using LLM")
-def extract_terms(
+def extract_terms_reg_organizations(
     word_file: List[UploadFile] = File(..., description="Upload one or more Word files"),
     name_word_file: Union[List[str], str] = Form(..., description="Matching names for the uploaded files"),
     language: str = Form(..., description="Arabic or English"),
@@ -52,7 +47,7 @@ def extract_terms(
     thinking: bool = Form(False),
     timeout: int = Form(180)
 ):
-    response_path = "./database/llm_raw_outputs"
+    response_path = "./database/llm_raw_outputs/regulator/organization"
     os.makedirs(response_path, exist_ok=True)
     all_results = []
 
@@ -123,7 +118,7 @@ def extract_terms(
                     logger.exception(f"❌ Error processing chunk {idx+1} for {file.filename}: {str(e)}")
 
             # ✅ Save combined output
-            final_docx_path = os.path.join(response_path, f"{file_name}_response.docx")
+            final_docx_path = os.path.join(response_path, f"{file_name}.docx")
             doc = Document()
             doc.add_paragraph(all_responses.strip())
             doc.save(final_docx_path)
@@ -132,10 +127,11 @@ def extract_terms(
             # ✅ Upload to Alibaba OSS
             blob_name = f"{file_name}_response.docx"
             bucket = init_oss_bucket(ACCESS_KEY_ID, ACCESS_KEY_SECRET, ENDPOINT, BUCKET_NAME)
-            url = upload_to_alibaba_oss_static(bucket, final_docx_path, f"cst_rag/{blob_name}")
+            oss_path = f"cst/cst_extract_terms/regulator/organization{blob_name}"
+            url = upload_to_alibaba_oss_static(bucket, final_docx_path, oss_path)
             logger.info(f"📤 Uploaded {blob_name} to Alibaba Cloud → {url}")
 
-            all_results.append({"file_name": file_name, "llm_response": all_responses.strip(), "url": url})
+            all_results.append({"file_name": file_name, "llm_response": all_responses.strip(), "url": url, "uploaded_doc": oss_path})
 
             # ✅ Cleanup temp files
             for f in [word_path, pdf_path]:
@@ -157,114 +153,10 @@ def extract_terms(
             except Exception as e:
                 logger.warning(f"⚠️ Could not delete {file_path}: {e}")
 
-'''
-@router.post("/extract_terms", description="Extract terms from Word file using LLM")
-def extract_terms(
-    word_file: UploadFile = File(...),
-    name_word_file: str = Form(...),
-    language: str = Form(..., description="Arabic, English"),
-    max_tokens: int = Form(512),
-    thinking: bool = Form(False),
-    timeout: int = Form(180)
-):
-    word_path = ""
-    response_path = "./database/llm_raw_outputs"
-    try:
-        logger.info("📥 Endpoint /extract_clauses_sync called.")
-        logger.info(f"Received file: {word_file.filename}, name_word_file: {name_word_file}, max_tokens: {max_tokens}, thinking: {thinking}, timeout: {timeout}")
 
-        if not word_file.filename.endswith(".docx"):
-            logger.warning("Uploaded file is not a .docx")
-            return JSONResponse(status_code=400, content={"error": "Uploaded file must be a .docx"})
-
-        os.makedirs("tmp", exist_ok=True)
-        word_path = save_temp_file(word_file, f"tmp/{word_file.filename}")
-        pdf_path = word_path.replace(".docx", ".pdf")
-        logger.info(f"Saved DOCX to {word_path} and will convert to PDF at {pdf_path}")
-
-        # ✅ Convert DOCX to PDF
-        convert_docx_to_pdf(word_path, pdf_path)
-        logger.info("✅ DOCX converted to PDF.")
-
-        # ✅ Extract pages from PDF
-        pages = extract_pages_from_pdf(pdf_path)
-        chunk_size = estimate_chunk_size(pages, max_tokens=max_tokens)
-        chunks = chunk_pages(pages, chunk_size=chunk_size)
-        logger.info(f"Extracted {len(pages)} pages into {len(chunks)} chunks.")
-
-        # ✅ Prepare prompts
-        prompts = [
-            f"""Your task is to extract (التعليمات والبنود والمطلوب من المستخدم ان يقوم به او ما يجب ان يتجنبه ) from raw text:\n\n{chunk}. \n the language is {language}"""
-            for chunk in chunks
-        ]
-
-        all_responses = ""
-        for idx, prompt in enumerate(prompts):
-            try:
-                logger.info(f"⏳ Sending prompt for chunk {idx+1}/{len(chunks)}")
-                headers = {
-                    "accept": "application/json",
-                    "Content-Type": "application/x-www-form-urlencoded"
-                }
-                data = {
-                    "prompt": prompt,
-                    "name_word_file": name_word_file,
-                    "max_tokens": str(max_tokens),
-                    "thinking": str(thinking).lower()
-                }
-
-                response = httpx.post(QWEN3_ENDPOINT, headers=headers, data=data, timeout=timeout)
-
-                if response.status_code != 200:
-                    logger.error(f"❌ LLM API failed on chunk {idx+1}: {response.status_code} - {response.text}")
-                    raise Exception(f"LLM API failed: {response.status_code} - {response.text}")
-
-                llm_response = response.json().get("response", "")
-                logger.info(f"✅ Received response for chunk {idx+1}")
-                all_responses += llm_response + "," +"\n"
-
-            except Exception as e:
-                logger.exception(f"❌ Error in chunk {idx+1}: {str(e)}")
-
-        # ✅ Save to docx
-        llm_outputs = "./database/llm_raw_outputs"
-        os.makedirs(llm_outputs, exist_ok=True)
-        final_docx_path = f"./database/llm_raw_outputs/{name_word_file}_response.docx"
-        doc = Document()
-        doc.add_paragraph(all_responses.strip())
-        doc.save(final_docx_path)
-        logger.info(f"✅ Saved LLM output to {final_docx_path}")
-
-        # ✅ Upload to Alibaba cloud storage
-        blob_name = f"{name_word_file}_response.docx"
-        bucket = init_oss_bucket(ACCESS_KEY_ID, ACCESS_KEY_SECRET, ENDPOINT, BUCKET_NAME)
-        url = upload_to_alibaba_oss_static(bucket, final_docx_path, f"cst_rag/{blob_name}")
-        logger.info(f"📤 Uploaded file to OOS Alibab. URL: {url}")
-
-        return {"llm_response": all_responses.strip(), "url": url}
-
-    except Exception as e:
-        logger.exception(f"🔥 Unexpected error: {str(e)}")
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-    finally:
-        for file_path in glob.glob(os.path.join(response_path, "*")):
-            try:
-                os.remove(file_path)
-                print(f"Deleted: {file_path}")
-            except Exception as e:
-                print(f"Error deleting {file_path}: {e}")
-        for file in [word_path, pdf_path]:
-            try:
-                if os.path.exists(file):
-                    os.remove(file)
-                    logger.info(f"🧹 Deleted temp file: {file}")
-            except Exception as cleanup_err:
-                logger.warning(f"⚠️ Could not delete temp file {file}: {cleanup_err}")
-'''
 
 @router.post("/generate_controls")
-def generate_controls(
+def generate_controls_reg_organizations(
     file_urls_json: FileURLs
 ):
     """ 
@@ -282,7 +174,7 @@ def generate_controls(
         }
 
     """
-    DOCX_DIRECTORY = "./database/controls"
+    DOCX_DIRECTORY = "./database/controls/regulator/organization"
     results = []
 
     try:
@@ -293,7 +185,7 @@ def generate_controls(
         for entry in file_urls_json.files:
             url = entry.url
             name_file = entry.name_file
-            OUTPUT_DOCX = f"./database/controls/{name_file}.docx"
+            OUTPUT_DOCX = f"./database/controls/regulator/{name_file}.docx"
 
             logger.info(f"Processing: {name_file} from {url}")
 
@@ -318,7 +210,7 @@ def generate_controls(
 
             # 6. Upload to OSS
             bucket = init_oss_bucket(ACCESS_KEY_ID, ACCESS_KEY_SECRET, ENDPOINT, BUCKET_NAME)
-            oss_path = f"controls_results/{name_file}.docx"
+            oss_path = f"cst/cst_controls/controls_results/regulator/organization/{name_file}.docx"
             url_uploaded = upload_to_alibaba_oss_static(bucket, OUTPUT_DOCX, oss_path)
 
             # 7. Append result
@@ -356,12 +248,13 @@ def generate_controls(
             logger.warning(f"⚠️ Cleanup failed: {cleanup_err}")
 
 
+
 # For RAG System
 @router.post("/create_rag_system")
 def create_rag_system(file_urls_json: FileURLsRag):
 
-    DOCX_DIRECTORY = "./database/glasshub_files"
-
+    DOCX_DIRECTORY = "./database/glasshub_files/regulator/organization"
+    path_upload = "cst/cst_rag/regulator/organization"
     try:
         # ✅ Validate input
         if not file_urls_json:
@@ -372,12 +265,14 @@ def create_rag_system(file_urls_json: FileURLsRag):
         logger.info(f"The URLs are {file_urls}")
 
         # 🧠 Ingest knowledge from files
-        ingest_company_knowledge(file_urls)
+        ingest_company_knowledge(file_urls, DOCX_DIRECTORY, path_upload)
         logger.info("📥 Files are downloaded and processed successfully.")
 
         return {
             "message": "RAG system created and files processed.",
-            "success": True
+            "success": True,
+            "path_faiss":f"https://glasshub-files-staging.oss-me-central-1.aliyuncs.com/{path_upload}/index.faiss",
+            "path_pkl":f"https://glasshub-files-staging.oss-me-central-1.aliyuncs.com/{path_upload}/index.pkl"
         }
 
     except Exception as e:

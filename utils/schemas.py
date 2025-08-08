@@ -30,7 +30,8 @@ class ControlsRequest(BaseModel):
     controls: List[ControlData]
 
 
-class FilterTermsRequest(BaseModel):
+class FilterTermsRequestEnterprise(BaseModel):
+    path_load: str
     user_question: str
     is_licensed: str
     license_type: str
@@ -39,6 +40,7 @@ class FilterTermsRequest(BaseModel):
     k: int = 4
 
 class FilterTermsRequestRegulator(BaseModel):
+    path_load: str
     license_type: str
     regulations: str
     k: int = 4

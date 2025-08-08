@@ -9,23 +9,18 @@ from dotenv import load_dotenv
 import logging
 from pydantic import TypeAdapter
 from typing import List
-
+from utils.logs import setup_logger
 # Load environment variables from .env file
 load_dotenv()
 
 # Logger setup
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
-# ✅ prevent adding multiple handlers
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
-    handler.setFormatter(formatter)
-    handler.stream.reconfigure(encoding='utf-8') 
-    logger.addHandler(handler)
 
-router = APIRouter(prefix="/api/v1", tags=["chat"])
+logger = logger = setup_logger(__name__)
+print(f"🔥 DEBUG: Module {__name__} logger setup complete!")
+print(f"🔥 DEBUG: Module {__name__} logger setup complete!")
+
+router = APIRouter(prefix="/api/v1/enterprise/licenses", tags=["Enterprise Licenses Chat"])
 
 REFUSAL_MESSAGE = (
     "عذرًا، يمكنني فقط الإجابة عن الأسئلة المتعلقة بمحتوى التدقيق المرفق.\n"
@@ -33,7 +28,7 @@ REFUSAL_MESSAGE = (
 )
 
 @router.post("/non_compliance_chat")
-async def non_compliance_chat(
+async def non_compliance_chat_enterprise_licenses(
     user_message: str = Form(...),
     description_control: str = Form(...),
     requirements_control: str = Form(...),
@@ -76,7 +71,7 @@ async def non_compliance_chat(
 
 
 @router.post("/general_chat")
-async def general_chat(
+async def general_chat_enterprise_licenses(
     user_message: str = Form(...),
     file: UploadFile = File(..., description="JSON file containing parsed_response: List[GeneralChat]")
 ):

@@ -4,30 +4,24 @@ from fastapi import APIRouter, Form, HTTPException, UploadFile, File
 import logging
 from fastapi.responses import JSONResponse
 # from utils.dynamic_controls import generate_compliance_prompt, save_control_prompt, merge_all_controls
-from utils.schemas import FilterTermsRequestRegulator, FileURLsRag
+from utils.schemas import FilterTermsRequestEnterprise, FileURLsRag
 from utils.helper_functions import (extract_json_from_text, extract_json_objects, flatten_clauses, init_oss_bucket)
 from dotenv import load_dotenv
 from utils.create_instructions import process_parsed_response
 from rag.knowledge_retriever import retrieve_relevant_knowledge_regulator
 from rag.knowledge_ingestion import ingest_company_knowledge, download_files_from_cloud_storage
-
+from utils.logs import setup_logger
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Logger setup
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
-# ✅ prevent adding multiple handlers
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
-    handler.setFormatter(formatter)
-    handler.stream.reconfigure(encoding='utf-8') 
-    logger.addHandler(handler)
 
-router = APIRouter(prefix="/api/v1", tags=["data"])
+logger = setup_logger(__name__)
+print(f"🔥 DEBUG: Module {__name__} logger setup complete!")
+
+router = APIRouter(prefix="/api/v1/enterprise/organization", tags=["Enterprise Organization Data"])
 
 
 # Alibaba cloud Connection
@@ -43,18 +37,8 @@ QWEN3_ENDPOINT_CHAT = os.getenv('QWEN3_ENDPOINT_CHAT')
 
 
 @router.post("/using_rag_system")
-def using_rag_system(file_urls_json: FileURLsRag):
-    """ 
-    You can use this all time:
-    {
-        "urls":
-        [
-            "https://glasshub-files-staging.oss-me-central-1.aliyuncs.com/cst_rag/index.faiss",
-            "https://glasshub-files-staging.oss-me-central-1.aliyuncs.com/cst_rag/index.pkl"
-        ]
-    }
-    """
-    Pathes = "./database/vectorstore_glasshub/"
+def using_rag_system_enterprise_organizations(file_urls_json: FileURLsRag):
+    Pathes = "./database/vectorstore_glasshub/enterprise/organization"
 
     try:
         # ✅ Validate input
@@ -84,10 +68,11 @@ def using_rag_system(file_urls_json: FileURLsRag):
 
 # For RAG System
 @router.post("/filter_terms", description="Search for relevant documents based on user input and company details")
-async def filter_terms(payload: FilterTermsRequestRegulator):
+async def filter_terms_enterprise_organizations(payload: FilterTermsRequestEnterprise):
     logger.info("Semantic search initiated...")
 
     results = retrieve_relevant_knowledge_regulator(
+        path_load="./database/vectorstore_glasshub/enterprise/organization",
         license_type=payload.license_type,
         regulations=payload.regulations,
         k=payload.k,

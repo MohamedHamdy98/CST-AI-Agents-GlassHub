@@ -1,30 +1,81 @@
-results = {
-  "results": [
-    {
-      "id": 0,
-      "image_name": "test.jpg",
-      "compliance": "NON-COMPLIANT",
-      "flags": [
-        "The image shows a 'Change Password' window and a Command Prompt window, which are unrelated to SMS service terms and conditions.",
-        "The presence of a 'User Account Control Panel' message indicating password policy requirements suggests a potential non-compliance with security policies."
-      ],
-      "needs_review": 'true',
-      "Brief_report": "The image displays a Windows interface with a 'Change Password' window and a Command Prompt showing a hostname command, which are not relevant to SMS service terms and conditions. Additionally, the password policy message indicates potential non-compliance.",
-      "report": "The image does not appear to be directly related to the audit instructions provided for checking the SMS service terms and conditions. The image shows a Windows operating system interface with a \"Change Password\" window open, along with a Command Prompt window displaying a hostname command. It seems to be unrelated to the audit process described in the instructions.\n\nIf you need assistance with the audit instructions, please provide more details or clarify if there is a specific part of the instructions you would like help with."
-    },
-    {
-      "id": 1,
-      "image_name": "WhatsApp Image 2025-06-23 at 12.17.26 PM.jpeg",
-      "compliance": "NON-COMPLIANT",
-      "flags": [
-        "The image contains email addresses and passwords for different roles within a system called GlassHub, which is unrelated to the control number \"بالمد 5\" or the audit instructions for SMS service terms and conditions."
-      ],
-      "needs_review": 'true',
-      "Brief_report": "The image is unrelated to the control number \"بالمد 5\" or the audit instructions for SMS service terms and conditions.",
-      "report": "The image provided does not contain any information related to the control number \"بالمد 5\" or the audit instructions for SMS service terms and conditions. The image appears to be a table with email addresses and passwords for different roles within a system called GlassHub, along with URLs for platform and admin access. It seems unrelated to the description and audit instructions you've provided. If you need assistance with the audit instructions or the content of the image, please clarify your request."
-    }
-  ]
-}
+#!/usr/bin/env python3
+"""
+Test script to verify all router logs are created
+Run this after starting your FastAPI app
+"""
+import os
+import time
+import requests
 
-for r in results["results"]:
-    print(r["id"])
+def test_router_logs():
+    print("🧪 Testing Router Log Creation...")
+    print("=" * 50)
+    
+    # First, check what log files exist before
+    log_dir = "./database/logs"
+    if os.path.exists(log_dir):
+        before_files = set(f for f in os.listdir(log_dir) if f.endswith('.log'))
+        print(f"📄 Log files before test: {len(before_files)}")
+        for file in sorted(before_files):
+            print(f"   - {file}")
+    
+    print(f"\n⏰ Waiting 2 seconds for app startup...")
+    time.sleep(2)
+    
+    # Check what log files exist after app startup
+    if os.path.exists(log_dir):
+        after_files = set(f for f in os.listdir(log_dir) if f.endswith('.log'))
+        new_files = after_files - before_files
+        
+        print(f"\n📄 Log files after startup: {len(after_files)}")
+        for file in sorted(after_files):
+            file_path = os.path.join(log_dir, file)
+            size = os.path.getsize(file_path)
+            status = "NEW" if file in new_files else "EXISTS"
+            print(f"   - {file} ({size} bytes) [{status}]")
+        
+        if new_files:
+            print(f"\n✅ {len(new_files)} new log files created!")
+        else:
+            print(f"\n⚠️ No new log files created during startup")
+    
+    # Expected log files based on your router structure
+    expected_logs = [
+        "apis_regulator_organizations_api_main_process_router.log",
+        "apis_regulator_organizations_api_admin_router.log", 
+        "apis_regulator_organizations_api_chat_router.log",
+        "apis_regulator_organizations_api_data_router.log",
+        "apis_regulator_licenses_api_main_process_router.log",
+        "apis_regulator_licenses_api_admin_router.log",
+        "apis_regulator_licenses_api_chat_router.log", 
+        "apis_regulator_licenses_api_data_router.log",
+        "apis_enterprise_organizations_api_main_process_router.log",
+        "apis_enterprise_organizations_api_admin_router.log",
+        "apis_enterprise_organizations_api_chat_router.log",
+        "apis_enterprise_organizations_api_data_router.log",
+        "apis_enterprise_licenses_api_main_process_router.log",
+        "apis_enterprise_licenses_api_admin_router.log",
+        "apis_enterprise_licenses_api_chat_router.log",
+        "apis_enterprise_licenses_api_data_router.log"
+    ]
+    
+    print(f"\n🎯 Checking for expected router logs...")
+    missing_logs = []
+    for expected_log in expected_logs:
+        if expected_log in after_files:
+            print(f"   ✅ {expected_log}")
+        else:
+            print(f"   ❌ {expected_log} - MISSING")
+            missing_logs.append(expected_log)
+    
+    if missing_logs:
+        print(f"\n⚠️ {len(missing_logs)} router logs are missing!")
+        print("This might happen if:")
+        print("1. The router modules don't have setup_logger(__name__) at the top")
+        print("2. The import is inside a function instead of at module level")
+        print("3. The routers aren't being imported by main.py")
+    else:
+        print(f"\n🎉 All {len(expected_logs)} router logs are present!")
+
+if __name__ == "__main__":
+    test_router_logs()

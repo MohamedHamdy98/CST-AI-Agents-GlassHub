@@ -67,19 +67,19 @@ def embed_documents(chunks):
     return db
 
 # Step 4: Save the vector database
-def save_vectorstore(db):
+def save_vectorstore(db, path_upload):
     if not os.path.exists(VECTORSTORE_DIRECTORY):
         os.makedirs(VECTORSTORE_DIRECTORY)
     db.save_local(VECTORSTORE_DIRECTORY)
     faiss = "./database/vectorstore_glasshub/index.faiss"
     pkl = "./database/vectorstore_glasshub/index.pkl"
-    upload_files_to_alibaba_oss_static(BUCKET, faiss, "cst_rag/index.faiss")
-    upload_files_to_alibaba_oss_static(BUCKET, pkl, "cst_rag/index.pkl")
+    upload_files_to_alibaba_oss_static(BUCKET, faiss, f"{path_upload}/index.faiss")
+    upload_files_to_alibaba_oss_static(BUCKET, pkl, f"{path_upload}/index.pkl")
 
 # Main function to ingest knowledge
-def ingest_company_knowledge(url):
+def ingest_company_knowledge(url, path_download, path_upload):
     print("Download all files for RAG System from cloud storage...")
-    download_files_from_cloud_storage(url)
+    download_files_from_cloud_storage(url, path_download)
     print(f"✅ Files downloaded.")
 
     print("📚 Loading documents...")
@@ -94,7 +94,7 @@ def ingest_company_knowledge(url):
     db = embed_documents(documents)
 
     print("💾 Saving vector database...")
-    save_vectorstore(db)
+    save_vectorstore(db, path_upload)
 
     print("🚀 Knowledge ingestion completed!")
 
