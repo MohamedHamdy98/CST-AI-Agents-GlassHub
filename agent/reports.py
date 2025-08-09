@@ -385,9 +385,9 @@ class Reports:
 
         for item in data:
             status = str(item["compliance"])
-            if status == "ComplianceStatus.NON_COMPLIANT":
+            if "NON_COMPLIANT" in status:
                 overall_status = "NON-COMPLIANT"
-            elif status == "ComplianceStatus.INDECISIVE" and overall_status != "NON-COMPLIANT":
+            elif "INDECISIVE" in status and overall_status != "NON-COMPLIANT":
                 overall_status = "INDECISIVE"
 
             combined_flags.extend(item.get("flags", []))
